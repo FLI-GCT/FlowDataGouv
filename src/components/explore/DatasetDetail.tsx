@@ -80,9 +80,31 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
 
   // Enrich resources with concurrency limit + batched state updates
   const enrichResources = useCallback(async (resources: ParsedResource[]) => {
-    // Skip already-enriched resources
-    const toEnrich = resources.filter((r) => !enrichedRef.current.has(r.id));
-    if (toEnrich.length === 0) return;
+    const toProcess = resources.filter((r) => !enrichedRef.current.has(r.id));
+    if (toProcess.length === 0) return;
+
+    // Non-previewable formats (ICS, PDF, ZIP…) don't need a tabular check.
+    // Populate them immediately from list data to avoid unnecessary API calls.
+    const immediate = new Map<string, ResourceEnriched>();
+    const needApiCheck: ParsedResource[] = [];
+    for (const res of toProcess) {
+      enrichedRef.current.add(res.id);
+      if (isPreviewableFormat(res.format?.toLowerCase() || "")) {
+        needApiCheck.push(res);
+      } else {
+        immediate.set(res.id, { mime: res.mime, resourceType: res.resourceType });
+      }
+    }
+
+    if (immediate.size > 0) {
+      setResourceDetails((prev) => {
+        const next = new Map(prev);
+        for (const [k, v] of immediate) next.set(k, v);
+        return next;
+      });
+    }
+
+    if (needApiCheck.length === 0) return;
 
     const batch: Map<string, ResourceEnriched> = new Map();
     let pending = 0;
@@ -101,14 +123,16 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
     };
 
     const processOne = async (res: ParsedResource) => {
-      enrichedRef.current.add(res.id);
       try {
         const response = await fetch("/api/datagouv/call", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ tool: "get_resource_info", args: { resource_id: res.id } }),
         });
-        if (!response.ok) return;
+        if (!response.ok) {
+          batch.set(res.id, { mime: res.mime, resourceType: res.resourceType });
+          return;
+        }
         const json = await response.json();
         const parsed = json.result;
         if (parsed?.type === "resource") {
@@ -117,23 +141,24 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
             resourceType: parsed.resourceType,
             tabularApiAvailable: parsed.tabularApiAvailable,
           });
+        } else {
+          batch.set(res.id, { mime: res.mime, resourceType: res.resourceType });
         }
       } catch {
-        // skip
+        batch.set(res.id, { mime: res.mime, resourceType: res.resourceType });
       }
     };
 
-    // Process with concurrency limit
+    // Process previewable resources with concurrency limit
     await new Promise<void>((resolve) => {
       const next = () => {
-        while (pending < ENRICH_CONCURRENCY && idx < toEnrich.length) {
+        while (pending < ENRICH_CONCURRENCY && idx < needApiCheck.length) {
           pending++;
-          const item = toEnrich[idx++];
+          const item = needApiCheck[idx++];
           processOne(item).finally(() => {
             pending--;
-            // Flush every ENRICH_CONCURRENCY completions
             if (batch.size >= ENRICH_CONCURRENCY) flush();
-            if (pending === 0 && idx >= toEnrich.length) {
+            if (pending === 0 && idx >= needApiCheck.length) {
               flush();
               resolve();
             } else {
