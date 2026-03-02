@@ -261,14 +261,14 @@ export function CatalogSummary() {
             <MapPin className="h-5 w-5 text-emerald-600" />
             <h3 className="text-base font-bold">Repartition geographique</h3>
             <Badge variant="secondary" className="text-xs ml-auto">
-              {data.geoRegions.length} zones
+              Top {data.geoRegions.length} zones
             </Badge>
           </div>
           <div className="flex flex-wrap gap-2">
             {data.geoRegions.map((region) => (
               <button
                 key={region.slug}
-                onClick={() => router.push(`/explore?geoScope=${region.scope}`)}
+                onClick={() => router.push(`/explore?geoScope=${region.scope}&geoArea=${encodeURIComponent(region.label)}`)}
                 className="group"
               >
                 <Badge variant="outline" className="text-xs px-2.5 py-1 gap-1.5 group-hover:border-emerald-400 group-hover:bg-emerald-50 dark:group-hover:bg-emerald-950/30 transition-colors">

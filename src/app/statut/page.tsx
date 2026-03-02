@@ -341,12 +341,7 @@ export default function McpExplorerPage() {
                     </Badge>
                   ))}
                 </div>
-                <Link href="/explore" className="mt-3 block">
-                  <Button variant="outline" size="sm" className="gap-1.5 text-xs w-full">
-                    <Search className="h-3 w-3" />
-                    {useCase.example}
-                  </Button>
-                </Link>
+                <p className="mt-3 text-xs text-muted-foreground italic">&laquo; {useCase.example} &raquo;</p>
               </Card>
             ))}
           </div>
