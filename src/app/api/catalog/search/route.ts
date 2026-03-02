@@ -85,7 +85,7 @@ export async function POST(request: Request) {
       body.dateAfter && `after=${body.dateAfter}`,
       body.qualityMin && `quality>=${body.qualityMin}`,
     ].filter(Boolean);
-    console.log(
+    console.error(
       `[search] q="${body.query || ""}"${expansion?.corrected !== body.query ? ` → "${expansion?.corrected}"` : ""} → ${result.total} results (${ms}ms)${filters.length ? ` [${filters.join(", ")}]` : ""}`
     );
 

@@ -82,7 +82,7 @@ export async function expandSearchQuery(query: string): Promise<SearchExpansion>
   const cacheKey = trimmed.toLowerCase();
   const cached = cache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    console.log(`[mistral] cache hit "${trimmed}"`);
+    console.error(`[mistral] cache hit "${trimmed}"`);
     return cached.result;
   }
 
@@ -154,7 +154,7 @@ export async function expandSearchQuery(query: string): Promise<SearchExpansion>
     };
 
     const ms = Date.now() - t0;
-    console.log(
+    console.error(
       `[mistral] "${trimmed}"${corrected !== trimmed ? ` → "${corrected}"` : ""} keywords=[${result.keywords.join(", ")}] (${ms}ms)`
     );
 
