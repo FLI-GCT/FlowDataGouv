@@ -33,6 +33,7 @@ interface SearchRequest {
 export async function POST(request: Request) {
   try {
     const body: SearchRequest = await request.json();
+    const t0 = Date.now();
 
     // Expand query via Mistral if text search
     let expansion: SearchExpansion | undefined;
@@ -74,6 +75,19 @@ export async function POST(request: Request) {
       page: body.page,
       pageSize: body.pageSize,
     });
+
+    const ms = Date.now() - t0;
+    const filters = [
+      body.categories?.length && `cat=${body.categories.join(",")}`,
+      body.geoScopes?.length && `geo=${body.geoScopes.join(",")}`,
+      body.geoAreas?.length && `area=${body.geoAreas.join(",")}`,
+      body.types?.length && `type=${body.types.join(",")}`,
+      body.dateAfter && `after=${body.dateAfter}`,
+      body.qualityMin && `quality>=${body.qualityMin}`,
+    ].filter(Boolean);
+    console.log(
+      `[search] q="${body.query || ""}"${expansion?.corrected !== body.query ? ` → "${expansion?.corrected}"` : ""} → ${result.total} results (${ms}ms)${filters.length ? ` [${filters.join(", ")}]` : ""}`
+    );
 
     return NextResponse.json({
       ...result,

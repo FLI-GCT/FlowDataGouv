@@ -17,12 +17,17 @@ export function createMcpServer(): McpServer {
       tool.description,
       tool.schema.shape,
       async (args) => {
+        const t0 = Date.now();
         try {
+          const argsStr = Object.entries(args as Record<string, unknown>)
+            .map(([k, v]) => `${k}=${typeof v === "string" ? `"${v}"` : v}`)
+            .join(", ");
           const content = await tool.handler(args as Record<string, unknown>);
+          console.error(`[mcp] ${tool.name}(${argsStr}) → ok (${Date.now() - t0}ms)`);
           return { content };
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          console.error(`[${tool.name}] Error:`, message);
+          console.error(`[mcp] ${tool.name} → ERROR: ${message} (${Date.now() - t0}ms)`);
           // Return error as informational text (NOT isError: true)
           // to avoid "Sibling tool call errored" cascade in Claude Desktop
           // when multiple tools are called in parallel.

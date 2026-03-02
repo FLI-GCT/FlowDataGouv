@@ -82,6 +82,7 @@ export async function expandSearchQuery(query: string): Promise<SearchExpansion>
   const cacheKey = trimmed.toLowerCase();
   const cached = cache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    console.log(`[mistral] cache hit "${trimmed}"`);
     return cached.result;
   }
 
@@ -91,6 +92,7 @@ export async function expandSearchQuery(query: string): Promise<SearchExpansion>
   }
 
   try {
+    const t0 = Date.now();
     const response = await mistral.chat.complete({
       model: MISTRAL_MODEL,
       messages: [
@@ -150,6 +152,11 @@ export async function expandSearchQuery(query: string): Promise<SearchExpansion>
       ...(Object.keys(suggestedFilters).length > 0 ? { suggestedFilters } : {}),
       wasExpanded: true,
     };
+
+    const ms = Date.now() - t0;
+    console.log(
+      `[mistral] "${trimmed}"${corrected !== trimmed ? ` → "${corrected}"` : ""} keywords=[${result.keywords.join(", ")}] (${ms}ms)`
+    );
 
     cache.set(cacheKey, { result, timestamp: Date.now() });
     return result;
