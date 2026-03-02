@@ -77,6 +77,19 @@ export async function POST(request: Request) {
     });
 
     const ms = Date.now() - t0;
+    if (expansion?.wasExpanded) {
+      const kw = expansion.keywords.join(", ");
+      const corr = expansion.corrected !== body.query ? ` corrected="${expansion.corrected}"` : "";
+      const sf = expansion.suggestedFilters;
+      const autoFilters = [
+        sf?.categories?.length && `cat=${sf.categories.join(",")}`,
+        sf?.geoScopes?.length && `geo=${sf.geoScopes.join(",")}`,
+        sf?.geoAreas?.length && `area=${sf.geoAreas.join(",")}`,
+      ].filter(Boolean);
+      console.error(
+        `[mistral] "${body.query}"${corr} keywords=[${kw}]${autoFilters.length ? ` filters=[${autoFilters.join(", ")}]` : ""}`
+      );
+    }
     const filters = [
       body.categories?.length && `cat=${body.categories.join(",")}`,
       body.geoScopes?.length && `geo=${body.geoScopes.join(",")}`,
@@ -86,7 +99,7 @@ export async function POST(request: Request) {
       body.qualityMin && `quality>=${body.qualityMin}`,
     ].filter(Boolean);
     console.error(
-      `[search] q="${body.query || ""}"${expansion?.corrected !== body.query ? ` → "${expansion?.corrected}"` : ""} → ${result.total} results (${ms}ms)${filters.length ? ` [${filters.join(", ")}]` : ""}`
+      `[search] q="${body.query || ""}" → ${result.total} results (${ms}ms)${filters.length ? ` [${filters.join(", ")}]` : ""}`
     );
 
     return NextResponse.json({
