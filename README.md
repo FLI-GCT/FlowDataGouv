@@ -2,6 +2,8 @@
 
 Plateforme open source pour explorer les 73 000+ datasets et APIs ouvertes de data.gouv.fr. Recherche intelligente Mistral, moteur de recherche facette in-memory, catalogue enrichi par IA, taxonomie a 3 niveaux.
 
+Projet personnel de [Guillaume CLEMENT](https://www.linkedin.com/in/guillaume-clement-erp-cloud/).
+
 ## Principe : IA quand necessaire, code quand suffisant
 
 | Action | Methode |
@@ -240,9 +242,9 @@ Les telechargements de ressources passent par `/api/download/{resourceId}` au li
 
 ## Ecosysteme MCP + Claude Cowork
 
-### Serveur MCP (D:\Github\datagouv-mcp)
+### Serveur MCP (mcp/)
 
-18 outils MCP en 4 categories, TypeScript + `@modelcontextprotocol/sdk`, transport stdio :
+18 outils MCP en 4 categories, TypeScript + `@modelcontextprotocol/sdk`, transport stdio + Streamable HTTP :
 
 | Categorie | Outils |
 |-----------|--------|
@@ -252,13 +254,13 @@ Les telechargements de ressources passent par `/api/download/{resourceId}` au li
 | Catalogue & Decouverte (5) | `catalog_summary`, `categories`, `latest_datasets`, `latest_apis`, `health` |
 
 ```bash
-cd D:/Github/datagouv-mcp
+cd mcp
 npm install && npm run build
-npm start  # Production (stdio)
-npm run dev  # Developpement (tsx)
+node dist/index.js     # stdio
+node dist/http.js      # Streamable HTTP (port 8000)
 ```
 
-### Plugin Cowork (D:\Github\knowledge-work-plugins\datagouv)
+### Plugin Cowork
 
 7 skills (expertise automatique) + 8 commandes slash :
 
@@ -281,7 +283,7 @@ npm run dev  # Developpement (tsx)
     "datagouv-mcp": {
       "type": "stdio",
       "command": "node",
-      "args": ["D:/Github/datagouv-mcp/dist/index.js"],
+      "args": ["<chemin>/FlowDataGouv/mcp/dist/index.js"],
       "env": { "FLOWDATA_URL": "http://localhost:3000" }
     }
   }
@@ -301,7 +303,7 @@ npm run dev  # Developpement (tsx)
 ## Installation
 
 ```bash
-git clone https://github.com/your-user/FlowDataGouv.git
+git clone https://github.com/FLI-GCT/FlowDataGouv.git
 cd FlowDataGouv
 npm install
 cp .env.example .env.local
@@ -369,13 +371,47 @@ data/
 └── taxonomy.json                        # Mapping normalise des sous-categories
 ```
 
-## Deploiement
+## Deploiement production
 
 ```bash
+# Build
 npm run build
-npm start
+
+# Copier les fichiers statiques dans le standalone
+cp -r public .next/standalone/
+cp -r .next/static .next/standalone/.next/
+ln -sf $(pwd)/data .next/standalone/data
+
+# Demarrer avec PM2
+pm2 start ecosystem.config.cjs
+pm2 save
 ```
+
+Voir `.env.production.example` pour les variables de production.
+
+### Taches cron recommandees
+
+```bash
+# Sync quotidienne (fetch + enrich + rebuild) — 15-30 min
+0 3 * * * curl -s -X POST "http://localhost:3000/api/sync/catalog?max=5000" \
+  -H "Authorization: Bearer $SYNC_SECRET"
+
+# Normalisation hebdomadaire (incremental) — < 2 min
+0 5 * * 0 curl -s -X POST "http://localhost:3000/api/sync/catalog?rebuild_only=true&normalize=true" \
+  -H "Authorization: Bearer $SYNC_SECRET"
+
+# Re-normalisation complete mensuelle — 10-15 min
+0 4 1 * * curl -s -X POST "http://localhost:3000/api/sync/catalog?rebuild_only=true&normalize=true&force_normalize=true" \
+  -H "Authorization: Bearer $SYNC_SECRET"
+```
+
+## Confidentialite
+
+- Aucun cookie
+- Aucun pistage
+- Logs anonymises (IP tronquee, RGPD)
+- IA Mistral (LLM francais, aucune donnee vers les US)
 
 ## Licence
 
-MIT
+[Apache License 2.0](LICENSE)

@@ -49,9 +49,18 @@ export function AppFooter() {
         {/* Mention legale + confidentialite */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-border/50 text-xs text-muted-foreground/70">
           <p>
-            Projet personnel de Guillaume CLEMENT &middot; Open Source{" "}
+            Projet personnel de{" "}
             <a
-              href="https://www.apache.org/licenses/LICENSE-2.0"
+              href="https://www.linkedin.com/in/guillaume-clement-erp-cloud/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-foreground/70"
+            >
+              Guillaume CLEMENT
+            </a>
+            {" "}&middot; Open Source{" "}
+            <a
+              href="https://github.com/FLI-GCT/FlowDataGouv"
               target="_blank"
               rel="noopener noreferrer"
               className="underline hover:text-foreground/70"
