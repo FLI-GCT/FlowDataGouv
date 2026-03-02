@@ -445,11 +445,10 @@ function ExploreContent() {
       handleFiltersChange({ ...filters, qualityMin: undefined });
     } else if (group === "geoScopes") {
       const newScopes = filters.geoScopes.filter((v) => v !== key);
-      const hasNonNational = newScopes.some((s) => s !== "national");
       handleFiltersChange({
         ...filters,
         geoScopes: newScopes,
-        geoAreas: hasNonNational ? filters.geoAreas : [],
+        geoAreas: newScopes.length > 0 ? filters.geoAreas : [],
       });
     } else {
       const newFilters = {

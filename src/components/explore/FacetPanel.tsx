@@ -332,7 +332,7 @@ function GeoFacetGroup({
 
   // Determine which scopes should show area sub-list
   const scopesWithAreas = useMemo(() => {
-    return new Set(selectedScopes.filter((s) => s !== "national"));
+    return new Set(selectedScopes);
   }, [selectedScopes]);
 
   // Filter areas based on search per scope
@@ -360,7 +360,7 @@ function GeoFacetGroup({
       <div className="space-y-1">
         {sortedScopes.map((scope) => {
           const isSelected = selectedScopes.includes(scope.value);
-          const showAreas = isSelected && scope.value !== "national" && geoAreas.length > 0;
+          const showAreas = isSelected && geoAreas.length > 0;
           const maxVisible = 8;
           const filteredAreas = showAreas ? getFilteredAreas(scope.value) : [];
           const isExpanded = areaExpanded[scope.value] || false;
