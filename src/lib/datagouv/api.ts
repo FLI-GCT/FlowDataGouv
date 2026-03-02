@@ -321,9 +321,10 @@ export async function downloadAndParseResource(
   const resourceUrl = resource.url;
   if (!resourceUrl) throw new Error("Pas d'URL de telechargement.");
 
-  // Try reading from download cache first
-  let text: string;
+  // Try reading from download cache first, then fall back to direct download
+  let text = "";
   let contentType = "";
+  let usedCache = false;
   try {
     const { getCachedPath } = await import("@/lib/cache/download-cache");
     const cached = await getCachedPath(resourceId);
@@ -332,15 +333,13 @@ export async function downloadAndParseResource(
       const buf = await readFile(cached.filePath);
       text = new TextDecoder("utf-8").decode(buf);
       contentType = cached.entry.contentType;
-    } else {
-      const dlRes = await fetch(resourceUrl, { signal: AbortSignal.timeout(300_000) });
-      if (!dlRes.ok) throw new Error(`Erreur telechargement: HTTP ${dlRes.status}`);
-      contentType = dlRes.headers.get("content-type") || "";
-      const buffer = await dlRes.arrayBuffer();
-      text = new TextDecoder("utf-8").decode(buffer);
+      usedCache = true;
     }
   } catch {
-    // Cache unavailable — fallback to direct download
+    // Cache module unavailable — will download directly
+  }
+
+  if (!usedCache) {
     const dlRes = await fetch(resourceUrl, { signal: AbortSignal.timeout(300_000) });
     if (!dlRes.ok) throw new Error(`Erreur telechargement: HTTP ${dlRes.status}`);
     contentType = dlRes.headers.get("content-type") || "";
