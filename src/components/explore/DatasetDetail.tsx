@@ -60,11 +60,16 @@ interface ResourceEnriched {
 
 const RES_COLS = 7;
 
+const RES_PAGE_SIZE = 20;
+const ENRICH_CONCURRENCY = 5;
+
 export function DatasetDetail({ datasetId }: DatasetDetailProps) {
   const infoCall = useMcpCall<ParsedDataset>();
   const resourcesCall = useMcpCall<ParsedResourceList>();
   const metricsCall = useMcpCall<ParsedMetrics>();
   const [resourceDetails, setResourceDetails] = useState<Map<string, ResourceEnriched>>(new Map());
+  const [visibleCount, setVisibleCount] = useState(RES_PAGE_SIZE);
+  const enrichedRef = React.useRef<Set<string>>(new Set());
 
   useEffect(() => {
     infoCall.call("get_dataset_info", { dataset_id: datasetId });
@@ -73,9 +78,30 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datasetId]);
 
-  // Enrich each resource with get_resource_info (REST direct)
+  // Enrich resources with concurrency limit + batched state updates
   const enrichResources = useCallback(async (resources: ParsedResource[]) => {
-    const promises = resources.map(async (res) => {
+    // Skip already-enriched resources
+    const toEnrich = resources.filter((r) => !enrichedRef.current.has(r.id));
+    if (toEnrich.length === 0) return;
+
+    const batch: Map<string, ResourceEnriched> = new Map();
+    let pending = 0;
+    let idx = 0;
+
+    const flush = () => {
+      if (batch.size > 0) {
+        const snapshot = new Map(batch);
+        batch.clear();
+        setResourceDetails((prev) => {
+          const next = new Map(prev);
+          for (const [k, v] of snapshot) next.set(k, v);
+          return next;
+        });
+      }
+    };
+
+    const processOne = async (res: ParsedResource) => {
+      enrichedRef.current.add(res.id);
       try {
         const response = await fetch("/api/datagouv/call", {
           method: "POST",
@@ -86,29 +112,49 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
         const json = await response.json();
         const parsed = json.result;
         if (parsed?.type === "resource") {
-          setResourceDetails((prev) => {
-            const next = new Map(prev);
-            next.set(res.id, {
-              mime: parsed.mime,
-              resourceType: parsed.resourceType,
-              tabularApiAvailable: parsed.tabularApiAvailable,
-            });
-            return next;
+          batch.set(res.id, {
+            mime: parsed.mime,
+            resourceType: parsed.resourceType,
+            tabularApiAvailable: parsed.tabularApiAvailable,
           });
         }
       } catch {
         // skip
       }
+    };
+
+    // Process with concurrency limit
+    await new Promise<void>((resolve) => {
+      const next = () => {
+        while (pending < ENRICH_CONCURRENCY && idx < toEnrich.length) {
+          pending++;
+          const item = toEnrich[idx++];
+          processOne(item).finally(() => {
+            pending--;
+            // Flush every ENRICH_CONCURRENCY completions
+            if (batch.size >= ENRICH_CONCURRENCY) flush();
+            if (pending === 0 && idx >= toEnrich.length) {
+              flush();
+              resolve();
+            } else {
+              next();
+            }
+          });
+        }
+      };
+      next();
     });
-    await Promise.allSettled(promises);
   }, []);
 
-  // Trigger enrichment when resources arrive
+  // Enrich only visible resources when they change
+  const allResources = resourcesCall.data?.type === "resource_list" ? resourcesCall.data.resources : [];
+  const visibleResources = allResources.slice(0, visibleCount);
+
   useEffect(() => {
-    if (resourcesCall.data?.type === "resource_list" && resourcesCall.data.resources.length > 0) {
-      enrichResources(resourcesCall.data.resources);
+    if (visibleResources.length > 0) {
+      enrichResources(visibleResources);
     }
-  }, [resourcesCall.data, enrichResources]);
+  }, [visibleResources.length, enrichResources]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const info = infoCall.data;
   const resources = resourcesCall.data;
@@ -244,7 +290,7 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {resources.resources.map((res, i) => {
+                    {visibleResources.map((res, i) => {
                       const fmt = res.format?.toLowerCase() || "";
                       const fmtInfo = FORMAT_ICONS[fmt] || { icon: FileText, color: "text-muted-foreground" };
                       const FmtIcon = fmtInfo.icon;
@@ -327,7 +373,7 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
 
             {/* Mobile cards */}
             <div className="sm:hidden space-y-2">
-              {resources.resources.map((res) => {
+              {visibleResources.map((res) => {
                 const fmt = res.format?.toLowerCase() || "";
                 const fmtInfo = FORMAT_ICONS[fmt] || { icon: FileText, color: "text-muted-foreground" };
                 const FmtIcon = fmtInfo.icon;
@@ -378,6 +424,37 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
                 );
               })}
             </div>
+
+            {/* Show more / show less */}
+            {resources.resources.length > RES_PAGE_SIZE && (
+              <div className="flex items-center justify-center gap-3 pt-3">
+                {visibleCount < resources.resources.length && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs gap-1.5"
+                    onClick={() => setVisibleCount((c) => Math.min(c + RES_PAGE_SIZE, resources.resources.length))}
+                  >
+                    Voir plus ({Math.min(RES_PAGE_SIZE, resources.resources.length - visibleCount)} suivants)
+                  </Button>
+                )}
+                {visibleCount > RES_PAGE_SIZE && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs"
+                    onClick={() => setVisibleCount(RES_PAGE_SIZE)}
+                  >
+                    Reduire
+                  </Button>
+                )}
+                <span className="text-xs text-muted-foreground">
+                  {visibleCount < resources.resources.length
+                    ? `${visibleCount} / ${resources.resources.length}`
+                    : `${resources.resources.length} affichees`}
+                </span>
+              </div>
+            )}
           </>
         )}
       </div>
