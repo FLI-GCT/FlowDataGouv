@@ -441,6 +441,14 @@ function ExploreContent() {
       handleFiltersChange({ ...filters, dateAfter: undefined });
     } else if (group === "qualityMin") {
       handleFiltersChange({ ...filters, qualityMin: undefined });
+    } else if (group === "geoScopes") {
+      const newScopes = filters.geoScopes.filter((v) => v !== key);
+      const hasNonNational = newScopes.some((s) => s !== "national");
+      handleFiltersChange({
+        ...filters,
+        geoScopes: newScopes,
+        geoAreas: hasNonNational ? filters.geoAreas : [],
+      });
     } else {
       const newFilters = {
         ...filters,
@@ -525,7 +533,7 @@ function ExploreContent() {
           <div className="flex gap-8" id="results-top">
             {/* Facet sidebar — desktop */}
             <aside className="hidden lg:block w-64 shrink-0">
-              <div className="sticky top-4">
+              <div className="sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto pr-2 scrollbar-thin">
                 <FacetPanel facets={facets} filters={filters} onChange={handleFiltersChange} />
               </div>
             </aside>

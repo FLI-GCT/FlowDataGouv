@@ -398,7 +398,7 @@ function GeoFacetGroup({
 
               {/* Area sub-list (shown when scope is checked, except national) */}
               {showAreas && selectedScopes.length === 1 && (
-                <div className="ml-6 mt-1 mb-2 space-y-1 border-l-2 border-muted pl-3">
+                <div className="ml-6 mt-1 mb-2 space-y-1 border-l-2 border-muted pl-3 max-h-64 overflow-y-auto">
                   {/* Area search */}
                   {geoAreas.length > maxVisible && (
                     <div className="relative mb-1">
@@ -495,7 +495,7 @@ function MultiScopeAreas({
   const hasMore = filtered.length > maxVisible;
 
   return (
-    <div className="ml-6 mt-1 mb-2 space-y-1 border-l-2 border-muted pl-3">
+    <div className="ml-6 mt-1 mb-2 space-y-1 border-l-2 border-muted pl-3 max-h-64 overflow-y-auto">
       <p className="text-xs font-medium text-muted-foreground mb-1">Zones</p>
       {geoAreas.length > maxVisible && (
         <div className="relative mb-1">
