@@ -95,11 +95,11 @@ export default function McpExplorerPage() {
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
           <div>
             <h1 className="text-lg font-bold flex items-center gap-2">
-              <Activity className="h-5 w-5 text-primary" />
-              Explorateur MCP
+              <Server className="h-5 w-5 text-primary" />
+              Statut du serveur
             </h1>
             <p className="text-sm text-muted-foreground">
-              Serveur MCP data.gouv.fr - Documentation en temps reel
+              FlowDataGouv - Etat des services et outils disponibles
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={fetchData} disabled={loading} className="gap-1.5">

@@ -31,8 +31,8 @@ export function AppFooter() {
             <Link href="/explore" className="hover:text-foreground hover:underline">
               Explorer
             </Link>
-            <Link href="/mcp" className="hover:text-foreground hover:underline">
-              MCP
+            <Link href="/statut" className="hover:text-foreground hover:underline">
+              Statut
             </Link>
             <a
               href="https://github.com/FLI-GCT/FlowDataGouv"
