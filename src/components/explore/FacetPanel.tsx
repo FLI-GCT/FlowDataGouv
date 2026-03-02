@@ -345,19 +345,8 @@ function GeoFacetGroup({
 
   const toggleScope = (scope: string) => {
     const newScopes = toggleValue(selectedScopes, scope);
-    // If unchecking a scope, also clear any areas that belonged to it
-    // (we can't know for sure which areas belong to which scope in multi-select,
-    //  so clear all areas when changing scopes for clean UX)
-    if (selectedScopes.includes(scope)) {
-      onChangeScopes(newScopes);
-      // If no scopes with areas left, clear areas
-      const remaining = newScopes.filter((s) => s !== "national");
-      if (remaining.length === 0) {
-        onChangeAreas([]);
-      }
-    } else {
-      onChangeScopes(newScopes);
-    }
+    onChangeScopes(newScopes);
+    // onChangeScopes already clears geoAreas (see FacetPanel below)
   };
 
   if (sortedScopes.length === 0) return null;

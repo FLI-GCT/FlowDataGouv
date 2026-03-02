@@ -314,6 +314,7 @@ function ExploreContent() {
           setCorrection(null);
         }
       } catch (err) {
+        if (controller.signal.aborted) return;
         if (err instanceof DOMException && err.name === "AbortError") return;
         setError("Erreur lors de la recherche. Reessayez.");
         console.error("[explore] Search error:", err);
@@ -404,6 +405,7 @@ function ExploreContent() {
           router.replace(`/explore${urlStr ? `?${urlStr}` : ""}`, { scroll: false });
         }
       } catch (err) {
+        if (controller.signal.aborted) return;
         if (err instanceof DOMException && err.name === "AbortError") return;
         setError("Erreur lors de la recherche. Reessayez.");
         setLoading(false);
