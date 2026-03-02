@@ -44,6 +44,9 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-dvh flex flex-col`}
       >
+        <div className="bg-muted/60 border-b border-border/50 text-center text-xs text-muted-foreground py-1.5 px-4">
+          Site gratuit et anonyme &middot; Projet Open Source de R&amp;D &middot; Non affili&eacute; &agrave; une entreprise ou institution
+        </div>
         <AppHeader />
         <div className="flex-1 flex flex-col">{children}</div>
         <AppFooter />
