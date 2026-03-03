@@ -299,6 +299,7 @@ function ExploreContent() {
           signal: controller.signal,
         });
 
+        if (res.status === 429) throw new Error("quota");
         if (!res.ok) throw new Error("Erreur de recherche");
         const data: SearchResponse = await res.json();
         if (controller.signal.aborted) return;
@@ -316,7 +317,11 @@ function ExploreContent() {
       } catch (err) {
         if (controller.signal.aborted) return;
         if (err instanceof DOMException && err.name === "AbortError") return;
-        setError("Erreur lors de la recherche. Reessayez.");
+        if (err instanceof Error && err.message === "quota") {
+          setError("Limite de 100 recherches par 24h atteinte. Réessayez demain.");
+        } else {
+          setError("Erreur lors de la recherche. Reessayez.");
+        }
         console.error("[explore] Search error:", err);
       } finally {
         if (!controller.signal.aborted) setLoading(false);
@@ -362,6 +367,7 @@ function ExploreContent() {
           signal: controller.signal,
         });
 
+        if (res.status === 429) throw new Error("quota");
         if (!res.ok) throw new Error("Erreur de recherche");
         const data: SearchResponse = await res.json();
         if (controller.signal.aborted) return;
@@ -407,7 +413,11 @@ function ExploreContent() {
       } catch (err) {
         if (controller.signal.aborted) return;
         if (err instanceof DOMException && err.name === "AbortError") return;
-        setError("Erreur lors de la recherche. Reessayez.");
+        if (err instanceof Error && err.message === "quota") {
+          setError("Limite de 100 recherches par 24h atteinte. Réessayez demain.");
+        } else {
+          setError("Erreur lors de la recherche. Reessayez.");
+        }
         setLoading(false);
         console.error("[explore] Search error:", err);
       }

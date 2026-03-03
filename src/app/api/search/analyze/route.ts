@@ -3,6 +3,7 @@ import {
   analyzeSearchResults,
   type DatasetSummary,
 } from "@/lib/search/analyze";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 interface AnalyzeRequest {
   query: string;
@@ -10,6 +11,21 @@ interface AnalyzeRequest {
 }
 
 export async function POST(request: Request) {
+  const rl = checkRateLimit(getClientIp(request));
+  if (!rl.success) {
+    return NextResponse.json(
+      { error: "Trop de requêtes. Réessayez dans 24h." },
+      {
+        status: 429,
+        headers: {
+          "X-RateLimit-Remaining": "0",
+          "X-RateLimit-Reset": String(rl.reset),
+          "Retry-After": String(Math.ceil((rl.reset - Date.now()) / 1000)),
+        },
+      }
+    );
+  }
+
   let body: AnalyzeRequest;
   try {
     body = await request.json();

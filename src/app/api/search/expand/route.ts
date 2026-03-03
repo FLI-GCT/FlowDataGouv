@@ -1,7 +1,23 @@
 import { NextResponse } from "next/server";
 import { expandSearchQuery } from "@/lib/search/expand";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
+  const rl = checkRateLimit(getClientIp(request));
+  if (!rl.success) {
+    return NextResponse.json(
+      { error: "Trop de requêtes. Réessayez dans 24h." },
+      {
+        status: 429,
+        headers: {
+          "X-RateLimit-Remaining": "0",
+          "X-RateLimit-Reset": String(rl.reset),
+          "Retry-After": String(Math.ceil((rl.reset - Date.now()) / 1000)),
+        },
+      }
+    );
+  }
+
   let body: { query?: string };
   try {
     body = await request.json();
