@@ -65,7 +65,7 @@ export function AppFooter() {
               rel="noopener noreferrer"
               className="underline hover:text-foreground/70"
             >
-              Licence Apache 2.0
+              Licence MIT
             </a>
           </p>
           <div className="flex items-center gap-1.5">

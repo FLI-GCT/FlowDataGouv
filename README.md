@@ -414,4 +414,4 @@ Voir `.env.production.example` pour les variables de production.
 
 ## Licence
 
-[Apache License 2.0](LICENSE)
+[MIT License](LICENSE)

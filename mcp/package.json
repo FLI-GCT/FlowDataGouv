@@ -2,6 +2,7 @@
   "name": "flowdatagouv-mcp",
   "version": "2.0.0",
   "description": "MCP server pour les donnees ouvertes francaises (73k+ datasets data.gouv.fr)",
+  "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
