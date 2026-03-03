@@ -17,6 +17,23 @@ setInterval(() => {
   }
 }, 60_000);
 
+// Anonymize IP: zero last octet (IPv4) or last group (IPv6), consistent with Nginx logs
+export function anonymizeIp(ip: string): string {
+  if (ip.includes(":")) {
+    // IPv6 — zero last group
+    const parts = ip.split(":");
+    parts[parts.length - 1] = "0";
+    return parts.join(":");
+  }
+  // IPv4 — zero last octet
+  const parts = ip.split(".");
+  if (parts.length === 4) {
+    parts[3] = "0";
+    return parts.join(".");
+  }
+  return ip;
+}
+
 export function checkRateLimit(ip: string): {
   success: boolean;
   remaining: number;
@@ -31,6 +48,7 @@ export function checkRateLimit(ip: string): {
   }
 
   if (entry.count >= RATE_LIMIT_MAX) {
+    console.error(`[rate-limit] 429 ip=${anonymizeIp(ip)} count=${entry.count} reset=${new Date(entry.resetAt).toISOString()}`);
     return { success: false, remaining: 0, reset: entry.resetAt };
   }
 
