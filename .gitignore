@@ -36,6 +36,9 @@ yarn-error.log*
 .env.production
 .env.*.local
 
+# server credentials (never commit)
+.server-info
+
 # vercel
 .vercel
 
@@ -49,3 +52,6 @@ next-env.d.ts
 # mcp server
 mcp/node_modules
 mcp/dist
+
+# claude code (local config, not for sharing)
+.claude/

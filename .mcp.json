@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "datagouv-mcp": {
+      "type": "http",
+      "url": "https://demo-fli.fr/mcp"
+    }
+  }
+}
