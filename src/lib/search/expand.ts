@@ -72,6 +72,12 @@ REGLES:
 Reponds UNIQUEMENT au format JSON (pas de texte avant ou apres):
 {"corrected": "requete corrigee", "keywords": ["kw1", "kw2", "kw3"], "suggestedCategories": [], "suggestedGeoScopes": [], "suggestedGeoAreas": []}`;
 
+export function isExpansionCached(query: string): boolean {
+  const key = query.trim().toLowerCase();
+  const cached = cache.get(key);
+  return !!(cached && Date.now() - cached.timestamp < CACHE_TTL);
+}
+
 export async function expandSearchQuery(query: string): Promise<SearchExpansion> {
   const trimmed = query.trim();
   if (!trimmed) {
