@@ -12,7 +12,7 @@ Projet personnel de [Guillaume CLEMENT](https://www.linkedin.com/in/guillaume-cl
 | Filtrage facettaire | 6 facettes dynamiques cross-filter + date + qualite |
 | Filtrage geo hierarchique | National / Regional → regions / Departemental → depts / Communal → communes |
 | Scoring pertinence | Word-boundary matching multi-champs (7 champs ponderes + popularite) |
-| Explorer le catalogue | CatalogSummary leger (~50KB) + catalog pre-construit (73k items) |
+| Explorer le catalogue | SSR + ISR (10 min) depuis catalog.json, fallback client-side |
 | Voir detail dataset/API | REST direct data.gouv.fr + metriques + interrogation CSV |
 | Telecharger ressources | Cache LRU disque (streaming, eviction par derniere utilisation, 10Go defaut) |
 | Enrichissement catalogue | Mistral batch (categorisation, geo, resume, qualite) |
@@ -54,10 +54,10 @@ Projet personnel de [Guillaume CLEMENT](https://www.linkedin.com/in/guillaume-cl
 ```
 Navigateur (React 19)
     |
-    |--- Landing (/)
+    |--- Landing (/) — SSR + ISR (revalidate 10 min)
     |    HeroSearch → /explore?q=...
     |    QueryExamples (6 requetes cliquables)
-    |    CatalogSummary (stats, categories, top datasets, geo)
+    |    CatalogSummary (pre-rendu serveur depuis catalog.json)
     |
     |--- Portail Recherche (/explore)
     |    Barre de recherche (Enter/clic uniquement)
@@ -88,7 +88,7 @@ API Routes Next.js
     |--- /api/search/analyze      POST — Analyse agentique (regroupement par theme)
     |--- /api/download/[id]       GET  — Proxy telechargement avec cache LRU disque
     |--- /api/download/stats      GET  — Stats cache (taille, utilisation, nb fichiers)
-    |--- /api/datagouv/call       POST — Proxy REST vers data.gouv.fr
+    |--- /api/datagouv/call       POST — Proxy REST vers data.gouv.fr (Cache-Control 5 min sur donnees stables)
     |--- /api/dataservice/proxy   POST — Proxy CORS pour "Try It" OpenAPI
     |--- /api/health              GET  — Health check
     v
@@ -224,6 +224,26 @@ Endpoint POST protege par `SYNC_SECRET` (obligatoire).
   -H "Authorization: Bearer $SYNC_SECRET"
 ```
 
+## Rate limiting (API Mistral)
+
+Les routes qui appellent Mistral AI sont protegees par un rate limiter in-memory (100 req/24h par IP par defaut).
+
+| Route | Comportement |
+|-------|-------------|
+| `/api/catalog/search` | Rate limit **uniquement si le cache Mistral ne contient pas la requete** (`isExpansionCached()`) |
+| `/api/search/expand` | Rate limit systematique |
+| `/api/search/analyze` | Rate limit systematique |
+
+### Fonctionnement
+
+- Store `Map<string, {count, resetAt}>` en memoire, nettoyage periodique des entrees expirees
+- **Cache-aware** : si l'expansion Mistral est deja en cache, aucun token consomme (evite double comptage)
+- Headers de reponse 429 : `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `Retry-After`
+- Logs anonymises sur 429 : dernier octet IPv4 / dernier groupe IPv6 mis a zero
+- Cote frontend (`/explore`) : message utilisateur "Limite de 100 recherches par 24h atteinte"
+
+> **Note PM2 cluster** : en mode cluster (x2), le store n'est pas partage entre workers. La limite effective est donc ~200 req/24h. Pour une limite stricte, utiliser Redis.
+
 ## Cache telechargement LRU
 
 Les telechargements de ressources passent par `/api/download/{resourceId}` au lieu d'un lien direct vers data.gouv.fr. Les fichiers sont caches sur le serveur avec eviction LRU.
@@ -290,6 +310,23 @@ node dist/http.js      # Streamable HTTP (port 8000)
 }
 ```
 
+### Configuration Claude Code
+
+Le fichier `.mcp.json` a la racine du projet connecte automatiquement Claude Code au serveur MCP :
+
+```json
+{
+  "mcpServers": {
+    "datagouv-mcp": {
+      "type": "http",
+      "url": "https://demo-fli.fr/mcp"
+    }
+  }
+}
+```
+
+> Pour un serveur local, remplacer l'URL par `http://localhost:8000/mcp`.
+
 ## Pages
 
 | Route | Description |
@@ -320,7 +357,7 @@ Ouvrir [http://localhost:3000](http://localhost:3000).
 | `MISTRAL_API_KEY` | Oui | Cle API Mistral | - |
 | `MISTRAL_MODEL` | Non | Modele Mistral pour enrichissement | `mistral-small-latest` |
 | `SYNC_SECRET` | Oui | Secret pour proteger l'API de sync (obligatoire pour `/api/sync/catalog`) | - |
-| `RATE_LIMIT_MAX` | Non | Requetes max par jour par IP | `20` |
+| `RATE_LIMIT_MAX` | Non | Requetes max par jour par IP (routes Mistral) | `100` |
 | `DOWNLOAD_CACHE_MAX_GB` | Non | Taille max du cache telechargement (Go) | `10` |
 
 ## Structure du projet
@@ -328,7 +365,7 @@ Ouvrir [http://localhost:3000](http://localhost:3000).
 ```
 src/
 ├── app/
-│   ├── page.tsx                         # Landing page
+│   ├── page.tsx                         # Landing page (async SSR + ISR 10 min)
 │   ├── layout.tsx                       # Layout global (AppHeader + AppFooter)
 │   ├── explore/
 │   │   ├── page.tsx                     # Portail recherche facettee
@@ -363,6 +400,7 @@ src/
 │   ├── search/expand.ts                 # Expansion Mistral (correction + mots-cles + filtres)
 │   ├── search/analyze.ts               # Analyse agentique (disponible via API)
 │   ├── datagouv/api.ts                  # Client REST data.gouv.fr (preview lit depuis cache)
+│   ├── rate-limit.ts                    # Rate limiter in-memory (IP anonymisee, cache-aware)
 │   ├── constants.ts                     # RATE_LIMIT, MISTRAL_MODEL, SITE_NAME
 │   └── utils.ts
 data/
@@ -389,6 +427,35 @@ pm2 save
 
 Voir `.env.production.example` pour les variables de production.
 
+### Nginx (reverse proxy)
+
+Configuration recommandee pour Nginx en front de PM2 :
+
+```nginx
+# IPv4 + IPv6 (obligatoire si DNS a un enregistrement AAAA)
+listen 443 ssl;
+listen [::]:443 ssl;
+
+# Gzip (Next.js compress: false, compression cote Nginx)
+gzip on;
+gzip_vary on;
+gzip_proxied any;
+gzip_comp_level 6;
+gzip_types text/plain text/css application/json application/javascript
+           text/xml application/xml application/xml+rss text/javascript;
+
+# Rate limiting Nginx (en complement du rate limit applicatif Mistral)
+limit_req_zone $binary_remote_addr zone=app:10m rate=120r/m;
+limit_req zone=app burst=30 nodelay;
+
+# Headers securite (deja dans next.config.ts, doublon Nginx optionnel)
+proxy_pass http://127.0.0.1:3000;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+```
+
+> **Important** : `compress: false` dans `next.config.ts` est intentionnel — la compression est geree par Nginx pour eviter la double compression. Reduction typique : ~80% sur les reponses JSON/HTML.
+
 ### Taches cron recommandees
 
 ```bash
@@ -405,12 +472,14 @@ Voir `.env.production.example` pour les variables de production.
   -H "Authorization: Bearer $SYNC_SECRET"
 ```
 
-## Confidentialite
+## Confidentialite et securite
 
-- Aucun cookie
-- Aucun pistage
-- Logs anonymises (IP tronquee, RGPD)
+- Aucun cookie, aucun pistage
+- Logs anonymises RGPD (dernier octet IP mis a zero, coherent Nginx/applicatif)
+- Rate limiting : 100 req/24h par IP sur routes Mistral + 120 req/min Nginx global
 - IA Mistral (LLM francais, aucune donnee vers les US)
+- Headers securite : CSP, HSTS, X-Frame-Options, X-Content-Type-Options (via `next.config.ts`)
+- fail2ban SSH, Let's Encrypt SSL, mises a jour automatiques (unattended-upgrades)
 
 ## Licence
 
