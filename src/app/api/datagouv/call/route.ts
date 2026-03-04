@@ -63,7 +63,19 @@ export async function POST(request: Request) {
 
   try {
     const result = await handler(body.args || {});
-    return NextResponse.json({ result, parsed: true });
+
+    // Cache stable data (latest lists, dataset info) for 5 min
+    const cacheableTools = new Set([
+      "get_latest_datasets", "get_latest_dataservices",
+      "get_dataset_info", "list_dataset_resources",
+      "get_resource_info", "get_dataservice_info",
+    ]);
+    const headers: Record<string, string> = {};
+    if (cacheableTools.has(body.tool)) {
+      headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=120";
+    }
+
+    return NextResponse.json({ result, parsed: true }, { headers });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Erreur API data.gouv.fr";

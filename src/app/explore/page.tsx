@@ -573,7 +573,7 @@ function ExploreContent() {
                       <FacetPanel
                         facets={facets}
                         filters={filters}
-                        onChange={(f) => { handleFiltersChange(f); setMobileFiltersOpen(false); }}
+                        onChange={handleFiltersChange}
                       />
                     </div>
                     <div className="mt-6 flex gap-2">
