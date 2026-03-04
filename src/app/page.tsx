@@ -1,10 +1,63 @@
 import { Bot } from "lucide-react";
 import { HeroSearch } from "@/components/layout/HeroSearch";
 import { QueryExamples } from "@/components/landing/QueryExamples";
-import { CatalogSummary } from "@/components/landing/CatalogSummary";
-import { LatestContent } from "@/components/landing/LatestContent";
+import { CatalogSummary, type CatalogSummaryData } from "@/components/landing/CatalogSummary";
+import { LatestContent, type LatestContentData } from "@/components/landing/LatestContent";
+import * as fs from "fs/promises";
+import * as path from "path";
+import type { Catalog } from "@/lib/sync/catalog";
+import {
+  getLatestDatasets,
+  getLatestDataservices,
+} from "@/lib/datagouv/api";
 
-export default function Home() {
+export const revalidate = 600; // ISR: revalidate every 10 min
+
+async function getCatalogSummary(): Promise<CatalogSummaryData | null> {
+  try {
+    const filePath = path.join(process.cwd(), "data", "catalog.json");
+    const raw = await fs.readFile(filePath, "utf-8");
+    const catalog: Catalog = JSON.parse(raw);
+    return {
+      lastSync: catalog.lastSync,
+      stats: catalog.stats,
+      categories: catalog.categories.map((c) => ({
+        slug: c.slug,
+        label: c.label,
+        totalItems: c.totalItems,
+        color: c.color,
+        description: c.description,
+      })),
+      topDatasets: catalog.topDatasets,
+      categoryStats: catalog.categoryStats,
+      geoRegions: (catalog.geoRegions || []).slice(0, 20),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function getLatestContent(): Promise<LatestContentData | null> {
+  try {
+    const [datasets, dataservices] = await Promise.all([
+      getLatestDatasets(6),
+      getLatestDataservices(6),
+    ]);
+    return {
+      datasets: datasets?.type === "dataset_list" ? datasets : null,
+      dataservices: dataservices?.type === "dataservice_list" ? dataservices : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export default async function Home() {
+  const [catalogData, latestData] = await Promise.all([
+    getCatalogSummary(),
+    getLatestContent(),
+  ]);
+
   return (
     <main>
       {/* Hero */}
@@ -47,7 +100,7 @@ export default function Home() {
 
       {/* Catalog summary — stats, categories, top datasets, geo */}
       <section className="border-t bg-muted/20 py-12">
-        <CatalogSummary />
+        <CatalogSummary initialData={catalogData} />
       </section>
 
       {/* Latest content */}
@@ -55,7 +108,7 @@ export default function Home() {
         <h2 className="mb-8 text-center text-2xl font-bold">
           En ce moment sur data.gouv.fr
         </h2>
-        <LatestContent />
+        <LatestContent initialData={latestData} />
       </section>
     </main>
   );

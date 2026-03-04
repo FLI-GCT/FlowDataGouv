@@ -21,7 +21,7 @@ import {
 
 // ── Types ────────────────────────────────────────────────────────
 
-interface CatalogSummaryData {
+export interface CatalogSummaryData {
   lastSync: string;
   stats: {
     totalDatasets: number;
@@ -101,18 +101,19 @@ function formatBigNumber(n: number): string {
 
 // ── Main Component ───────────────────────────────────────────────
 
-export function CatalogSummary() {
+export function CatalogSummary({ initialData }: { initialData?: CatalogSummaryData | null }) {
   const router = useRouter();
-  const [data, setData] = useState<CatalogSummaryData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<CatalogSummaryData | null>(initialData ?? null);
+  const [loading, setLoading] = useState(!initialData);
 
   useEffect(() => {
+    if (initialData) return; // skip fetch when server-provided
     fetch("/api/catalog/summary")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d?.stats) setData(d); })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [initialData]);
 
   if (loading) {
     return (

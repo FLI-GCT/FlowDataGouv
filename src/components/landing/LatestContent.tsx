@@ -29,14 +29,20 @@ function formatDate(dateStr?: string): string {
   }
 }
 
-export function LatestContent() {
-  const [datasets, setDatasets] = useState<ParsedDatasetList | null>(null);
+export interface LatestContentData {
+  datasets: ParsedDatasetList | null;
+  dataservices: ParsedDataserviceList | null;
+}
+
+export function LatestContent({ initialData }: { initialData?: LatestContentData | null }) {
+  const [datasets, setDatasets] = useState<ParsedDatasetList | null>(initialData?.datasets ?? null);
   const [dataservices, setDataservices] =
-    useState<ParsedDataserviceList | null>(null);
-  const [loadingDs, setLoadingDs] = useState(true);
-  const [loadingApi, setLoadingApi] = useState(true);
+    useState<ParsedDataserviceList | null>(initialData?.dataservices ?? null);
+  const [loadingDs, setLoadingDs] = useState(!initialData?.datasets);
+  const [loadingApi, setLoadingApi] = useState(!initialData?.dataservices);
 
   useEffect(() => {
+    if (initialData) return; // skip fetch when server-provided
     fetch("/api/datagouv/call", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -64,7 +70,7 @@ export function LatestContent() {
       })
       .catch(() => {})
       .finally(() => setLoadingApi(false));
-  }, []);
+  }, [initialData]);
 
   return (
     <div className="mx-auto max-w-6xl grid gap-8 md:grid-cols-2">
