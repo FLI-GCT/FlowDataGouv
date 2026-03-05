@@ -66,21 +66,42 @@ export const datasetTools: ToolDef[] = [
     name: "datagouv_resource_data",
     description: [
       "Interroge les donnees tabulaires d'une ressource CSV/XLS via l'API Tabular.",
-      "Retourne les colonnes et lignes paginables. Ideal pour explorer un fichier.",
+      "Supporte filtrage par colonne et tri. Operateurs : exact, contains, less, greater, strictly_less, strictly_greater.",
     ].join("\n"),
     schema: z.object({
       resource_id: z.string().describe("ID de la ressource"),
       page: z.number().optional().describe("Page (defaut: 1)"),
       page_size: z.number().optional().describe("Lignes par page (defaut: 20, max: 200)"),
+      filter_column: z.string().optional().describe("Colonne a filtrer"),
+      filter_value: z.string().optional().describe("Valeur du filtre"),
+      filter_operator: z.enum(["exact", "contains", "less", "greater", "strictly_less", "strictly_greater"]).optional().describe("Operateur de filtre (defaut: exact)"),
+      sort_column: z.string().optional().describe("Colonne de tri"),
+      sort_direction: z.enum(["asc", "desc"]).optional().describe("Direction du tri (defaut: asc)"),
     }),
     handler: async (args) => {
+      const proxyArgs: Record<string, unknown> = {
+        resource_id: args.resource_id,
+        page: args.page || 1,
+        page_size: args.page_size || 20,
+      };
+      if (args.filter_column) {
+        proxyArgs.filter_column = args.filter_column;
+        proxyArgs.filter_value = args.filter_value || "";
+        proxyArgs.filter_operator = args.filter_operator || "exact";
+      }
+      if (args.sort_column) {
+        proxyArgs.sort_column = args.sort_column;
+        proxyArgs.sort_direction = args.sort_direction || "asc";
+      }
+      const filters = args.filter_column
+        ? { column: args.filter_column as string, value: (args.filter_value || "") as string, operator: args.filter_operator as string }
+        : undefined;
+      const sort = args.sort_column
+        ? { column: args.sort_column as string, direction: args.sort_direction as string }
+        : undefined;
       const { data, source } = await withFallback(
-        () => flowdata.proxyDatagouvCall("query_resource_data", {
-          resource_id: args.resource_id,
-          page: args.page || 1,
-          page_size: args.page_size || 20,
-        }),
-        () => datagouv.queryResourceData(args.resource_id as string, (args.page as number) || 1, (args.page_size as number) || 20),
+        () => flowdata.proxyDatagouvCall("query_resource_data", proxyArgs),
+        () => datagouv.queryResourceData(args.resource_id as string, (args.page as number) || 1, (args.page_size as number) || 20, filters, sort),
       );
       return [{ type: "text" as const, text: formatResult("Donnees", data, source) }];
     },

@@ -38,8 +38,24 @@ export async function getResourceInfo(resourceId: string) {
 
 // ── Tabular data ─────────────────────────────────────────────────
 
-export async function queryResourceData(resourceId: string, page = 1, pageSize = 20) {
-  const url = `${TABULAR()}/resources/${resourceId}/data/?page=${page}&page_size=${pageSize}`;
+export async function queryResourceData(
+  resourceId: string,
+  page = 1,
+  pageSize = 20,
+  filters?: { column: string; value: string; operator?: string },
+  sort?: { column: string; direction?: string },
+) {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  });
+  if (filters?.column && filters.value !== undefined) {
+    params.set(`${filters.column}__${filters.operator || "exact"}`, filters.value);
+  }
+  if (sort?.column) {
+    params.set(`${sort.column}__sort`, sort.direction || "asc");
+  }
+  const url = `${TABULAR()}/resources/${resourceId}/data/?${params}`;
   return get<Record<string, unknown>>(url, 30_000);
 }
 

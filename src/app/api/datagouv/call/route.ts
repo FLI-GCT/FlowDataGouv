@@ -25,7 +25,11 @@ const TOOL_MAP: Record<string, ToolHandler> = {
   list_dataset_resources: (a) => listDatasetResources(a.dataset_id),
   get_resource_info: (a) => getResourceInfo(a.resource_id),
   query_resource_data: (a) =>
-    queryResourceData(a.resource_id, a.page || 1, a.page_size || 20),
+    queryResourceData(
+      a.resource_id, a.page || 1, a.page_size || 20,
+      a.filter_column ? { column: a.filter_column, value: a.filter_value, operator: a.filter_operator } : undefined,
+      a.sort_column ? { column: a.sort_column, direction: a.sort_direction } : undefined,
+    ),
   download_and_parse_resource: (a) =>
     downloadAndParseResource(a.resource_id, a.max_rows || 50),
   search_dataservices: (a) =>

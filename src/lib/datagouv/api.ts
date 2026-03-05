@@ -252,12 +252,25 @@ export async function getResourceInfo(resourceId: string): Promise<ParsedResourc
 export async function queryResourceData(
   resourceId: string,
   page = 1,
-  pageSize = 20
+  pageSize = 20,
+  filters?: { column: string; value: string; operator?: string },
+  sort?: { column: string; direction?: string },
 ): Promise<ParsedTabularData> {
   const params = new URLSearchParams({
     page: String(Math.max(page, 1)),
     page_size: String(Math.max(1, Math.min(pageSize, 200))),
   });
+
+  // Tabular API filter: column__operator=value
+  if (filters?.column && filters.value !== undefined) {
+    const op = filters.operator || "exact";
+    params.set(`${filters.column}__${op}`, filters.value);
+  }
+
+  // Tabular API sort: column__sort=asc|desc
+  if (sort?.column) {
+    params.set(`${sort.column}__sort`, sort.direction || "asc");
+  }
 
   const url = `${TABULAR_API}resources/${resourceId}/data/?${params}`;
   const res = await fetch(url, {
