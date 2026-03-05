@@ -13,7 +13,7 @@ Projet personnel de [Guillaume CLEMENT](https://www.linkedin.com/in/guillaume-cl
 | Filtrage geo hierarchique | National / Regional → regions / Departemental → depts / Communal → communes |
 | Scoring pertinence | Word-boundary matching multi-champs (7 champs ponderes + popularite) |
 | Explorer le catalogue | SSR + ISR (10 min) depuis catalog.json, fallback client-side |
-| Voir detail dataset/API | REST direct data.gouv.fr + metriques + interrogation CSV |
+| Voir detail dataset/API | REST direct data.gouv.fr + metriques + interrogation CSV (filtrage/tri par colonne) |
 | Telecharger ressources | Cache LRU disque (streaming, eviction par derniere utilisation, 10Go defaut) |
 | Enrichissement catalogue | Mistral batch (categorisation, geo, resume, qualite) |
 | Normalisation taxonomie | Mistral Large (clustering sous-categories) |
@@ -226,7 +226,7 @@ Endpoint POST protege par `SYNC_SECRET` (obligatoire).
 
 ## Rate limiting (API Mistral)
 
-Les routes qui appellent Mistral AI sont protegees par un rate limiter in-memory (100 req/24h par IP par defaut).
+Les routes qui appellent Mistral AI sont protegees par un rate limiter in-memory (500 req/24h par IP par defaut).
 
 | Route | Comportement |
 |-------|-------------|
@@ -240,9 +240,9 @@ Les routes qui appellent Mistral AI sont protegees par un rate limiter in-memory
 - **Cache-aware** : si l'expansion Mistral est deja en cache, aucun token consomme (evite double comptage)
 - Headers de reponse 429 : `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `Retry-After`
 - Logs anonymises sur 429 : dernier octet IPv4 / dernier groupe IPv6 mis a zero
-- Cote frontend (`/explore`) : message utilisateur "Limite de 100 recherches par 24h atteinte"
+- Cote frontend (`/explore`) : message utilisateur "Limite de recherches par 24h atteinte"
 
-> **Note PM2 cluster** : en mode cluster (x2), le store n'est pas partage entre workers. La limite effective est donc ~200 req/24h. Pour une limite stricte, utiliser Redis.
+> **Note PM2 cluster** : en mode cluster (x2), le store n'est pas partage entre workers. La limite effective est donc ~1000 req/24h. Pour une limite stricte, utiliser Redis.
 
 ## Cache telechargement LRU
 
@@ -269,7 +269,7 @@ Les telechargements de ressources passent par `/api/download/{resourceId}` au li
 | Categorie | Outils |
 |-----------|--------|
 | Recherche intelligente (3) | `smart_search`, `expand_query`, `analyze_results` |
-| Datasets & Ressources (6) | `dataset_info`, `dataset_resources`, `resource_data`, `download_resource`, `resource_info`, `dataset_metrics` |
+| Datasets & Ressources (6) | `dataset_info`, `dataset_resources`, `resource_data` (filtrage/tri par colonne), `download_resource`, `resource_info`, `dataset_metrics` |
 | APIs & Dataservices (4) | `api_info`, `api_spec`, `api_call`, `search_apis` |
 | Catalogue & Decouverte (5) | `catalog_summary`, `categories`, `latest_datasets`, `latest_apis`, `health` |
 
@@ -357,7 +357,7 @@ Ouvrir [http://localhost:3000](http://localhost:3000).
 | `MISTRAL_API_KEY` | Oui | Cle API Mistral | - |
 | `MISTRAL_MODEL` | Non | Modele Mistral pour enrichissement | `mistral-small-latest` |
 | `SYNC_SECRET` | Oui | Secret pour proteger l'API de sync (obligatoire pour `/api/sync/catalog`) | - |
-| `RATE_LIMIT_MAX` | Non | Requetes max par jour par IP (routes Mistral) | `100` |
+| `RATE_LIMIT_MAX` | Non | Requetes max par jour par IP (routes Mistral) | `500` |
 | `DOWNLOAD_CACHE_MAX_GB` | Non | Taille max du cache telechargement (Go) | `10` |
 
 ## Structure du projet
@@ -476,10 +476,21 @@ proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 
 - Aucun cookie, aucun pistage
 - Logs anonymises RGPD (dernier octet IP mis a zero, coherent Nginx/applicatif)
-- Rate limiting : 100 req/24h par IP sur routes Mistral + 120 req/min Nginx global
+- Rate limiting : 500 req/24h par IP sur routes Mistral, 500 req/h proxy applicatif, 120 req/min Nginx global
 - IA Mistral (LLM francais, aucune donnee vers les US)
 - Headers securite : CSP, HSTS, X-Frame-Options, X-Content-Type-Options (via `next.config.ts`)
 - fail2ban SSH, Let's Encrypt SSL, mises a jour automatiques (unattended-upgrades)
+
+## Roadmap MCP
+
+Voir [docs/plan-mcp-game-changer.md](docs/plan-mcp-game-changer.md) pour les evolutions prevues :
+
+1. **Profiling automatique des ressources** : types de colonnes, min/max, nulls, cardinalite
+2. **Detection de colonnes pivot** : INSEE, SIRET, code postal, GPS
+3. **Cross-dataset** : suggestions de jointures entre datasets partageant les memes identifiants
+4. **Tracker de ressources cassees** : signaler les liens morts, suggerer des alternatives
+5. **Resume statistique a la volee** : un appel pour decider si une ressource est utile
+6. **Requetes multi-ressources** : orchestration en un seul appel via Mistral
 
 ## Licence
 
