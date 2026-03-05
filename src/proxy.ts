@@ -4,7 +4,7 @@ import type { NextRequest } from "next/server";
 // ---------- In-memory rate limiter (per worker) ----------
 // Nginx est la défense principale (30 req/min).
 // Ce rate limiter applicatif est une défense secondaire par worker.
-const RATE_LIMIT_MAX = parseInt(process.env.RATE_LIMIT_MAX || "100", 10);
+const RATE_LIMIT_MAX = parseInt(process.env.RATE_LIMIT_MAX || "500", 10);
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 heure
 
 interface Entry {

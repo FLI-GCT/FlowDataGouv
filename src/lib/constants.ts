@@ -1,5 +1,5 @@
 export const RATE_LIMIT_MAX = parseInt(
-  process.env.RATE_LIMIT_MAX || "100",
+  process.env.RATE_LIMIT_MAX || "500",
   10
 );
 
