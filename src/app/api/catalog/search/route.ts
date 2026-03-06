@@ -113,20 +113,22 @@ export async function POST(request: Request) {
     }
 
     const ms = Date.now() - t0;
-    if (expansion?.wasExpanded) {
-      const kw = expansion.keywords.join(", ");
-      const corr = expansion.corrected !== body.query ? ` corrected="${expansion.corrected}"` : "";
+
+    // Consolidated search log — every query, always
+    const parts: string[] = [`q="${body.query || ""}"`];
+    if (expansion) {
+      if (expansion.corrected !== body.query) parts.push(`corrected="${expansion.corrected}"`);
+      parts.push(`kw=[${expansion.keywords.join(", ")}]`);
       const sf = expansion.suggestedFilters;
-      const autoFilters = [
+      const autoF = [
         sf?.categories?.length && `cat=${sf.categories.join(",")}`,
         sf?.geoScopes?.length && `geo=${sf.geoScopes.join(",")}`,
         sf?.geoAreas?.length && `area=${sf.geoAreas.join(",")}`,
       ].filter(Boolean);
-      console.error(
-        `[mistral] "${body.query}"${corr} keywords=[${kw}]${autoFilters.length ? ` filters=[${autoFilters.join(", ")}]` : ""}`
-      );
+      if (autoF.length) parts.push(`mistral=[${autoF.join(", ")}]`);
+      if (!expansion.wasExpanded) parts.push("(fallback)");
     }
-    const filters = [
+    const userFilters = [
       body.categories?.length && `cat=${body.categories.join(",")}`,
       body.geoScopes?.length && `geo=${body.geoScopes.join(",")}`,
       body.geoAreas?.length && `area=${body.geoAreas.join(",")}`,
@@ -134,9 +136,15 @@ export async function POST(request: Request) {
       body.dateAfter && `after=${body.dateAfter}`,
       body.qualityMin && `quality>=${body.qualityMin}`,
     ].filter(Boolean);
-    console.error(
-      `[search] q="${body.query || ""}" → ${result.total} results (${ms}ms)${filters.length ? ` [${filters.join(", ")}]` : ""}`
+    if (userFilters.length) parts.push(`filters=[${userFilters.join(", ")}]`);
+    parts.push(`→ ${result.total} results`);
+    if (reranked) parts.push("(reranked)");
+    parts.push(`(${ms}ms)`);
+    // Top 3 titles for quick analysis
+    const top3 = result.items.slice(0, 3).map((it, i) =>
+      `  ${i + 1}. "${it.title.slice(0, 60)}" [${it.score?.toFixed(1) || "-"}] ${it.views}v`
     );
+    console.error(`[search] ${parts.join(" ")}\n${top3.join("\n")}`);
 
     return NextResponse.json({
       ...result,
