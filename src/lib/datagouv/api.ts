@@ -19,6 +19,7 @@ import type {
   OpenApiRequestBody,
   OpenApiResponse,
 } from "@/lib/parsers";
+import { PREVIEW_MAX_BYTES } from "@/lib/constants";
 
 // --- Base URLs (from datagouv-mcp env_config.py) ---
 
@@ -190,6 +191,7 @@ export async function listDatasetResources(datasetId: string): Promise<ParsedRes
     id: r.id || "",
     format: r.format || "",
     size: formatSize(r.filesize),
+    sizeBytes: typeof r.filesize === "number" ? r.filesize : undefined,
     mime: r.mime,
     resourceType: r.type,
     url: r.url || "",
@@ -241,6 +243,7 @@ export async function getResourceInfo(resourceId: string): Promise<ParsedResourc
     id: resource.id || resourceId,
     format: resource.format || "",
     size: formatSize(resource.filesize),
+    sizeBytes: typeof resource.filesize === "number" ? resource.filesize : undefined,
     mime: resource.mime,
     resourceType: resource.type,
     url: resource.url || "",
@@ -796,6 +799,527 @@ export async function getLatestDataservices(pageSize = 6): Promise<ParsedDataser
     query: "",
     total: data.total || 0,
     dataservices: (data.data || []).map(mapDataservice),
+  };
+}
+
+// --- Shared: get cached file path (disk cache) or download ---
+
+async function getCachedOrDownload(resourceId: string, maxBytes: number): Promise<{
+  filePath: string;
+  contentType: string;
+  resourceTitle: string;
+  resourceUrl: string;
+}> {
+  // 1. Get resource info
+  const infoRes = await fetch(`${DATAGOUV_API}2/datasets/resources/${resourceId}/`, {
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!infoRes.ok) throw new Error(`Ressource introuvable: HTTP ${infoRes.status}`);
+  const infoData = await infoRes.json();
+  const resource = infoData.resource || {};
+  const resourceUrl = resource.url;
+  if (!resourceUrl) throw new Error("Pas d'URL de telechargement.");
+
+  // 2. Try disk cache first
+  const { getCachedPath, cacheResource } = await import("@/lib/cache/download-cache");
+  const cached = await getCachedPath(resourceId);
+  if (cached) {
+    // Check size limit
+    if (cached.entry.size > maxBytes) {
+      throw new Error(`Fichier trop volumineux (${(cached.entry.size / 1024 / 1024).toFixed(1)} MB, max ${(maxBytes / 1024 / 1024).toFixed(0)} MB)`);
+    }
+    return {
+      filePath: cached.filePath,
+      contentType: cached.entry.contentType,
+      resourceTitle: resource.title || "",
+      resourceUrl,
+    };
+  }
+
+  // 3. Check size with HEAD before downloading
+  const headRes = await fetch(resourceUrl, { method: "HEAD", signal: AbortSignal.timeout(10_000) }).catch(() => null);
+  const contentLength = headRes?.headers.get("content-length");
+  if (contentLength && parseInt(contentLength) > maxBytes) {
+    throw new Error(`Fichier trop volumineux (${(parseInt(contentLength) / 1024 / 1024).toFixed(1)} MB, max ${(maxBytes / 1024 / 1024).toFixed(0)} MB)`);
+  }
+
+  // 4. Download to disk cache
+  const result = await cacheResource(resourceId, resourceUrl);
+  if (result.entry.size > maxBytes) {
+    throw new Error(`Fichier trop volumineux (${(result.entry.size / 1024 / 1024).toFixed(1)} MB, max ${(maxBytes / 1024 / 1024).toFixed(0)} MB)`);
+  }
+
+  return {
+    filePath: result.filePath,
+    contentType: result.entry.contentType,
+    resourceTitle: resource.title || "",
+    resourceUrl,
+  };
+}
+
+// --- Raw download (for XML viewer) — reads from disk cache ---
+
+export async function downloadResourceRaw(
+  resourceId: string,
+  maxBytes = PREVIEW_MAX_BYTES,
+): Promise<{ content: string; contentType: string; resourceTitle: string }> {
+  const { filePath, contentType, resourceTitle } = await getCachedOrDownload(resourceId, maxBytes);
+  const { readFile } = await import("fs/promises");
+  const buf = await readFile(filePath);
+  const content = new TextDecoder("utf-8").decode(buf);
+  return { content, contentType, resourceTitle };
+}
+
+// --- JSON download with truncation (for JSON viewer) — reads from disk cache ---
+
+export interface ParsedJsonPreview {
+  data: unknown;
+  totalItems: number | null;
+  displayedItems: number | null;
+  truncated: boolean;
+  resourceTitle: string;
+}
+
+/** Max bytes to read from a JSON file for preview. */
+const JSON_READ_LIMIT = 2 * 1024 * 1024; // 2 MB
+
+/** Max serialized response size sent to the browser. */
+const JSON_RESPONSE_MAX = 80 * 1024; // 80 KB
+
+export async function downloadResourceJson(
+  resourceId: string,
+  maxItems = 100,
+  maxBytes = PREVIEW_MAX_BYTES,
+): Promise<ParsedJsonPreview> {
+  const { filePath, resourceTitle } = await getCachedOrDownload(resourceId, maxBytes);
+  const { stat, open } = await import("fs/promises");
+
+  const fileInfo = await stat(filePath);
+  const fileSize = fileInfo.size;
+  const isPartialRead = fileSize > JSON_READ_LIMIT;
+
+  const fd = await open(filePath, "r");
+  try {
+    const buf = Buffer.alloc(Math.min(fileSize, JSON_READ_LIMIT));
+    await fd.read(buf, 0, buf.length, 0);
+    const text = buf.toString("utf-8");
+
+    const firstChar = text.trimStart()[0];
+
+    // --- JSONL (not starting with [ or {) ---
+    if (firstChar !== "[" && firstChar !== "{") {
+      return finalize(parseJsonl(text, maxItems, resourceTitle, isPartialRead), resourceTitle);
+    }
+
+    // --- Small enough to parse fully ---
+    if (!isPartialRead) {
+      let parsed: unknown;
+      try { parsed = JSON.parse(text); } catch {
+        return finalize(parseJsonl(text, maxItems, resourceTitle, false), resourceTitle);
+      }
+      return finalize(truncateJson(parsed, maxItems, resourceTitle), resourceTitle);
+    }
+
+    // --- Partial read: array ---
+    if (firstChar === "[") {
+      return finalize(parsePartialJsonArray(text, maxItems, resourceTitle), resourceTitle);
+    }
+
+    // --- Partial read: object ---
+    // Check JSONL (one object per line)
+    const nl = text.indexOf("\n");
+    if (nl > 0) {
+      try {
+        JSON.parse(text.substring(0, nl));
+        return finalize(parseJsonl(text, maxItems, resourceTitle, true), resourceTitle);
+      } catch { /* not JSONL */ }
+    }
+
+    // Find nested array (features, data, items, records…)
+    const nested = parsePartialNestedArray(text, maxItems, resourceTitle);
+    if (nested) return finalize(nested, resourceTitle);
+
+    return {
+      data: { _notice: `Fichier JSON volumineux (${(fileSize / 1024 / 1024).toFixed(1)} MB). Telechargez-le pour l'explorer.` },
+      totalItems: null, displayedItems: null, truncated: true, resourceTitle,
+    };
+  } finally {
+    await fd.close();
+  }
+}
+
+/**
+ * Post-process: strip GeoJSON geometry, then cap response size.
+ */
+function finalize(preview: ParsedJsonPreview, resourceTitle: string): ParsedJsonPreview {
+  stripGeometry(preview);
+  return capResponseSize(preview, resourceTitle);
+}
+
+function parseJsonl(text: string, maxItems: number, resourceTitle: string, isPartialRead: boolean): ParsedJsonPreview {
+  const lines = text.split("\n");
+  const items: unknown[] = [];
+  for (const line of lines) {
+    if (items.length >= maxItems) break;
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try { items.push(JSON.parse(trimmed)); } catch { /* skip partial line */ }
+  }
+  return {
+    data: items,
+    totalItems: isPartialRead ? null : items.length,
+    displayedItems: items.length,
+    truncated: isPartialRead || items.length >= maxItems,
+    resourceTitle,
+  };
+}
+
+function parsePartialJsonArray(text: string, maxItems: number, resourceTitle: string): ParsedJsonPreview {
+  // Find the last complete item by scanning for top-level commas
+  const items: unknown[] = [];
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  let itemStart = -1;
+
+  for (let i = 0; i < text.length && items.length < maxItems; i++) {
+    const ch = text[i];
+
+    if (escape) { escape = false; continue; }
+    if (ch === "\\") { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+
+    if (ch === "[" || ch === "{") {
+      if (depth === 1 && ch === "{" && itemStart === -1) itemStart = i;
+      if (depth === 1 && ch === "[" && itemStart === -1) itemStart = i;
+      depth++;
+    } else if (ch === "]" || ch === "}") {
+      depth--;
+      if (depth === 1 && itemStart !== -1) {
+        // End of a top-level item
+        const slice = text.substring(itemStart, i + 1);
+        try { items.push(JSON.parse(slice)); } catch { /* skip */ }
+        itemStart = -1;
+      }
+    } else if (ch === "," && depth === 1) {
+      // Primitive item between commas
+      if (itemStart !== -1) {
+        const slice = text.substring(itemStart, i).trim();
+        try { items.push(JSON.parse(slice)); } catch { /* skip */ }
+        itemStart = -1;
+      }
+    } else if (depth === 1 && itemStart === -1 && ch !== " " && ch !== "\n" && ch !== "\r" && ch !== "\t") {
+      // Start of a primitive value
+      itemStart = i;
+    }
+  }
+
+  return {
+    data: items,
+    totalItems: null, // unknown since file was truncated
+    displayedItems: items.length,
+    truncated: true,
+    resourceTitle,
+  };
+}
+
+/**
+ * For truncated large JSON objects, find the first big array property
+ * (e.g. "features", "data", "items", "records") and extract items from it.
+ * Works on GeoJSON FeatureCollections, API responses, etc.
+ */
+function parsePartialNestedArray(text: string, maxItems: number, resourceTitle: string): ParsedJsonPreview | null {
+  // Find the first occurrence of "key":[ pattern
+  const arrayStartRe = /"(\w+)"\s*:\s*\[/g;
+  let match: RegExpExecArray | null;
+  while ((match = arrayStartRe.exec(text)) !== null) {
+    const key = match[1];
+    const bracketPos = text.indexOf("[", match.index + match[0].length - 1);
+    if (bracketPos === -1) continue;
+
+    // Extract text from [ onwards and parse items
+    const arrayText = text.substring(bracketPos);
+    const items = extractItemsFromPartialArray(arrayText, maxItems);
+    if (items.length > 0) {
+      // Try to extract the wrapper keys before the array for context
+      const prefix = text.substring(0, match.index);
+      const wrapper: Record<string, unknown> = {};
+      // Extract simple key:value pairs from the prefix
+      const kvRe = /"(\w+)"\s*:\s*("(?:[^"\\]|\\.)*"|\d+(?:\.\d+)?|true|false|null)\s*[,}]/g;
+      let kvMatch: RegExpExecArray | null;
+      while ((kvMatch = kvRe.exec(prefix)) !== null) {
+        try { wrapper[kvMatch[1]] = JSON.parse(kvMatch[2]); } catch { /* skip */ }
+      }
+      wrapper[key] = items;
+      return {
+        data: wrapper,
+        totalItems: null,
+        displayedItems: items.length,
+        truncated: true,
+        resourceTitle,
+      };
+    }
+  }
+  return null;
+}
+
+function extractItemsFromPartialArray(text: string, maxItems: number): unknown[] {
+  const items: unknown[] = [];
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  let itemStart = -1;
+
+  for (let i = 0; i < text.length && items.length < maxItems; i++) {
+    const ch = text[i];
+    if (escape) { escape = false; continue; }
+    if (ch === "\\") { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+
+    if (ch === "[" || ch === "{") {
+      if (depth === 1 && itemStart === -1) itemStart = i;
+      depth++;
+    } else if (ch === "]" || ch === "}") {
+      depth--;
+      if (depth === 1 && itemStart !== -1) {
+        const slice = text.substring(itemStart, i + 1);
+        try { items.push(JSON.parse(slice)); } catch { /* skip incomplete */ }
+        itemStart = -1;
+      }
+      if (depth === 0) break; // end of array
+    } else if (ch === "," && depth === 1) {
+      if (itemStart !== -1) {
+        const slice = text.substring(itemStart, i).trim();
+        try { items.push(JSON.parse(slice)); } catch { /* skip */ }
+        itemStart = -1;
+      }
+    } else if (depth === 1 && itemStart === -1 && ch !== " " && ch !== "\n" && ch !== "\r" && ch !== "\t") {
+      itemStart = i;
+    }
+  }
+  return items;
+}
+
+/**
+ * Ensure the preview payload stays under JSON_RESPONSE_MAX.
+ * If it's too large (e.g. GeoJSON features with huge coordinate arrays),
+ * progressively halve the number of items until it fits.
+ */
+/**
+ * Strip GeoJSON geometry coordinates (they bloat the preview and are useless to display).
+ * Replaces coordinates with a short summary like "[Polygon, 1234 coords]".
+ */
+function stripGeometry(preview: ParsedJsonPreview): void {
+  const data = preview.data;
+  if (!data || typeof data !== "object") return;
+
+  function simplifyGeom(geom: Record<string, unknown>): void {
+    const type = geom.type as string;
+    if (!type || !geom.coordinates) return;
+    const coords = geom.coordinates;
+    const count = JSON.stringify(coords).length;
+    geom.coordinates = `[${type}, ~${Math.round(count / 10)} coords]` as unknown;
+  }
+
+  function processFeature(f: Record<string, unknown>): void {
+    if (f.geometry && typeof f.geometry === "object") {
+      simplifyGeom(f.geometry as Record<string, unknown>);
+    }
+  }
+
+  // Root is a FeatureCollection
+  const obj = data as Record<string, unknown>;
+  if (obj.type === "FeatureCollection" && Array.isArray(obj.features)) {
+    obj.features.forEach((f: unknown) => {
+      if (f && typeof f === "object") processFeature(f as Record<string, unknown>);
+    });
+    return;
+  }
+
+  // Root is a single Feature
+  if (obj.type === "Feature" && obj.geometry) {
+    processFeature(obj);
+    return;
+  }
+
+  // Root is an array of Features
+  if (Array.isArray(data)) {
+    data.forEach((item: unknown) => {
+      if (item && typeof item === "object") {
+        const o = item as Record<string, unknown>;
+        if (o.type === "Feature" && o.geometry) processFeature(o);
+      }
+    });
+    return;
+  }
+
+  // Nested: look one level deep for arrays of features
+  for (const val of Object.values(obj)) {
+    if (Array.isArray(val)) {
+      val.forEach((item: unknown) => {
+        if (item && typeof item === "object") {
+          const o = item as Record<string, unknown>;
+          if (o.type === "Feature" && o.geometry) processFeature(o);
+        }
+      });
+    }
+  }
+}
+
+function capResponseSize(preview: ParsedJsonPreview, resourceTitle: string): ParsedJsonPreview {
+  let serialized = JSON.stringify(preview.data);
+  if (serialized.length <= JSON_RESPONSE_MAX) return preview;
+
+  // Find the array to shrink — could be root array or nested in an object
+  let arr: unknown[] | null = null;
+  let setArr: ((items: unknown[]) => void) | null = null;
+
+  if (Array.isArray(preview.data)) {
+    arr = preview.data;
+    setArr = (items) => { preview.data = items; };
+  } else if (preview.data && typeof preview.data === "object") {
+    const obj = preview.data as Record<string, unknown>;
+    for (const [key, val] of Object.entries(obj)) {
+      if (Array.isArray(val) && val.length > 0) {
+        arr = val;
+        setArr = (items) => { obj[key] = items; };
+        break;
+      }
+    }
+  }
+
+  if (!arr || !setArr || arr.length === 0) return preview;
+
+  // Progressively halve until under the limit
+  let count = arr.length;
+  while (count > 1) {
+    count = Math.max(1, Math.floor(count / 2));
+    const sliced = arr.slice(0, count);
+    serialized = JSON.stringify({ ...preview.data as object });
+    // Quick check with just the sliced part
+    setArr(sliced);
+    serialized = JSON.stringify(preview.data);
+    if (serialized.length <= JSON_RESPONSE_MAX) break;
+  }
+
+  preview.displayedItems = count;
+  preview.truncated = true;
+  return preview;
+}
+
+function truncateJson(data: unknown, maxItems: number, resourceTitle: string): ParsedJsonPreview {
+  // If root is an array, truncate it
+  if (Array.isArray(data)) {
+    const total = data.length;
+    const truncated = total > maxItems;
+    return {
+      data: truncated ? data.slice(0, maxItems) : data,
+      totalItems: total,
+      displayedItems: Math.min(total, maxItems),
+      truncated,
+      resourceTitle,
+    };
+  }
+
+  // If root is an object, look for the first large array property and truncate it
+  if (data != null && typeof data === "object") {
+    const obj = data as Record<string, unknown>;
+    for (const [key, value] of Object.entries(obj)) {
+      if (Array.isArray(value) && value.length > maxItems) {
+        return {
+          data: { ...obj, [key]: value.slice(0, maxItems) },
+          totalItems: value.length,
+          displayedItems: maxItems,
+          truncated: true,
+          resourceTitle,
+        };
+      }
+    }
+    // Also check nested: { wrapper: { items: [...] } }
+    for (const [key, value] of Object.entries(obj)) {
+      if (value != null && typeof value === "object" && !Array.isArray(value)) {
+        const nested = value as Record<string, unknown>;
+        for (const [nk, nv] of Object.entries(nested)) {
+          if (Array.isArray(nv) && nv.length > maxItems) {
+            return {
+              data: { ...obj, [key]: { ...nested, [nk]: nv.slice(0, maxItems) } },
+              totalItems: nv.length,
+              displayedItems: maxItems,
+              truncated: true,
+              resourceTitle,
+            };
+          }
+        }
+      }
+    }
+  }
+
+  // No truncation needed
+  return {
+    data,
+    totalItems: null,
+    displayedItems: null,
+    truncated: false,
+    resourceTitle,
+  };
+}
+
+// --- ZIP content listing ---
+
+export interface ZipEntry {
+  name: string;
+  size: number;
+  compressedSize: number;
+  isDirectory: boolean;
+}
+
+export interface ZipListing {
+  entries: ZipEntry[];
+  totalFiles: number;
+  totalSize: number;
+  resourceTitle: string;
+}
+
+export async function listZipContents(
+  resourceId: string,
+  maxBytes = PREVIEW_MAX_BYTES,
+): Promise<ZipListing> {
+  const { filePath, resourceTitle } = await getCachedOrDownload(resourceId, maxBytes);
+  const { readFile } = await import("fs/promises");
+  const buffer = await readFile(filePath);
+
+  const JSZip = (await import("jszip")).default;
+  const zip = await JSZip.loadAsync(buffer);
+
+  const entries: ZipEntry[] = [];
+  let totalSize = 0;
+
+  zip.forEach((relativePath, file) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const internal = file as any;
+    const entry: ZipEntry = {
+      name: relativePath,
+      size: internal._data?.uncompressedSize ?? 0,
+      compressedSize: internal._data?.compressedSize ?? 0,
+      isDirectory: file.dir,
+    };
+    entries.push(entry);
+    if (!file.dir) totalSize += entry.size;
+  });
+
+  // Sort: directories first, then by name
+  entries.sort((a, b) => {
+    if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  return {
+    entries,
+    totalFiles: entries.filter((e) => !e.isDirectory).length,
+    totalSize,
+    resourceTitle,
   };
 }
 

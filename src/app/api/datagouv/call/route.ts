@@ -6,6 +6,9 @@ import {
   getResourceInfo,
   queryResourceData,
   downloadAndParseResource,
+  downloadResourceRaw,
+  downloadResourceJson,
+  listZipContents,
   searchDataservices,
   getDataserviceInfo,
   getDataserviceOpenApiSpec,
@@ -32,6 +35,12 @@ const TOOL_MAP: Record<string, ToolHandler> = {
     ),
   download_and_parse_resource: (a) =>
     downloadAndParseResource(a.resource_id, a.max_rows || 50),
+  download_resource_raw: (a) =>
+    downloadResourceRaw(a.resource_id, a.max_bytes || 5 * 1024 * 1024),
+  download_resource_json: (a) =>
+    downloadResourceJson(a.resource_id, a.max_items || 100),
+  list_zip_contents: (a) =>
+    listZipContents(a.resource_id, a.max_bytes || 50 * 1024 * 1024),
   search_dataservices: (a) =>
     searchDataservices(a.query || "", a.page || 1, a.page_size || 20),
   get_dataservice_info: (a) => getDataserviceInfo(a.dataservice_id),

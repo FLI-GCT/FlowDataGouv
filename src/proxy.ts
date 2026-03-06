@@ -54,7 +54,13 @@ function checkLimit(ip: string) {
 }
 
 // ---------- Routes exclues du rate limiting ----------
-const EXCLUDED = ["/api/health", "/api/mcp/status"];
+const EXCLUDED = [
+  "/api/health",
+  "/api/mcp/status",
+  "/api/datagouv/call",
+  "/api/datagouv/download",
+  "/api/download/",
+];
 
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;

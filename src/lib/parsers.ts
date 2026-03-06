@@ -41,6 +41,7 @@ export interface ParsedResource {
   id: string;
   format: string;
   size?: string;
+  sizeBytes?: number;
   mime?: string;
   resourceType?: string;
   url: string;

@@ -5,6 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DataTable } from "@/components/data/DataTable";
 import { DataChart } from "@/components/data/DataChart";
+import { JsonTreeViewer } from "@/components/data/JsonTreeViewer";
+import { ImageViewer } from "@/components/data/ImageViewer";
+import { PdfViewer } from "@/components/data/PdfViewer";
+import { XmlViewer } from "@/components/data/XmlViewer";
+import { ZipViewer } from "@/components/data/ZipViewer";
 import {
   ChevronUp,
   Loader2,
@@ -18,22 +23,52 @@ interface ResourceDataViewerProps {
   resourceTitle: string;
   isTabular: boolean;
   format?: string;
+  sizeBytes?: number;
+  previewMaxBytes?: number;
 }
+
+type FormatGroup = "tabular" | "json" | "image" | "pdf" | "xml" | "zip" | "unknown";
+
+const FORMAT_MAP: Record<string, FormatGroup> = {
+  csv: "tabular", tsv: "tabular", xlsx: "tabular", xls: "tabular", parquet: "tabular",
+  json: "json", jsonl: "json", geojson: "json",
+  jpg: "image", jpeg: "image", png: "image", gif: "image", webp: "image", svg: "image",
+  pdf: "pdf",
+  xml: "xml",
+  zip: "zip", "7z": "zip", rar: "zip", gz: "zip", tar: "zip", gtfs: "zip",
+};
+
+function getFormatGroup(format?: string, isTabular?: boolean): FormatGroup {
+  if (format) {
+    const group = FORMAT_MAP[format.toLowerCase()];
+    if (group) return group;
+  }
+  if (isTabular) return "tabular";
+  return "unknown";
+}
+
+const DEFAULT_MAX_BYTES = parseInt(process.env.NEXT_PUBLIC_PREVIEW_MAX_MB || "50", 10) * 1024 * 1024;
 
 export function ResourceDataViewer({
   resourceId,
   resourceTitle,
   isTabular,
   format,
+  sizeBytes,
+  previewMaxBytes = DEFAULT_MAX_BYTES,
 }: ResourceDataViewerProps) {
-  const [data, setData] = useState<ParsedTabularData | null>(null);
+  const [tabularData, setTabularData] = useState<ParsedTabularData | null>(null);
+  const [jsonData, setJsonData] = useState<unknown>(null);
+  const [jsonMeta, setJsonMeta] = useState<{ totalItems: number | null; displayedItems: number | null; truncated: boolean } | null>(null);
+  const [zipData, setZipData] = useState<{ entries: { name: string; size: number; compressedSize: number; isDirectory: boolean }[]; totalFiles: number; totalSize: number } | null>(null);
   const [rawContent, setRawContent] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
-  // Auto-load data when expanded
+  const formatGroup = getFormatGroup(format, isTabular);
+
   useEffect(() => {
     if (!expanded || loaded) return;
     loadData();
@@ -41,33 +76,103 @@ export function ResourceDataViewer({
   }, [expanded]);
 
   async function loadData() {
+    // Image and PDF don't need a fetch — they use the download proxy directly
+    if (formatGroup === "image" || formatGroup === "pdf") {
+      setLoaded(true);
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
     try {
-      const tool = isTabular ? "query_resource_data" : "download_and_parse_resource";
-      const args = isTabular
-        ? { resource_id: resourceId }
-        : { resource_id: resourceId };
+      if (formatGroup === "json") {
+        // Use server-side JSON parsing with truncation
+        const response = await fetch("/api/datagouv/call", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tool: "download_resource_json",
+            args: { resource_id: resourceId, max_items: 5 },
+          }),
+        });
 
-      const response = await fetch("/api/datagouv/call", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tool, args }),
-      });
+        if (!response.ok) {
+          const errBody = await response.json().catch(() => ({}));
+          throw new Error(errBody.error || `Erreur HTTP ${response.status}`);
+        }
 
-      if (!response.ok) {
-        const errBody = await response.json().catch(() => ({}));
-        throw new Error(errBody.error || `Erreur HTTP ${response.status}`);
-      }
+        const json = await response.json();
+        const result = json.result;
+        setJsonData(result.data);
+        setJsonMeta({ totalItems: result.totalItems, displayedItems: result.displayedItems, truncated: result.truncated });
+      } else if (formatGroup === "zip") {
+        const response = await fetch("/api/datagouv/call", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tool: "list_zip_contents",
+            args: { resource_id: resourceId },
+          }),
+        });
 
-      const json = await response.json();
-      const result = json.result;
+        if (!response.ok) {
+          const errBody = await response.json().catch(() => ({}));
+          throw new Error(errBody.error || `Erreur HTTP ${response.status}`);
+        }
 
-      if (result?.type === "tabular_data") {
-        setData(result as ParsedTabularData);
-      } else if (typeof result === "string") {
-        setRawContent(result);
+        const json = await response.json();
+        const result = json.result;
+        setZipData({ entries: result.entries, totalFiles: result.totalFiles, totalSize: result.totalSize });
+      } else if (formatGroup === "xml") {
+        const response = await fetch("/api/datagouv/call", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tool: "download_resource_raw",
+            args: { resource_id: resourceId },
+          }),
+        });
+
+        if (!response.ok) {
+          const errBody = await response.json().catch(() => ({}));
+          throw new Error(errBody.error || `Erreur HTTP ${response.status}`);
+        }
+
+        const json = await response.json();
+        setRawContent(json.result.content);
+      } else {
+        // Tabular data
+        // Binary formats (xlsx, xls, parquet) require the tabular API — can't parse client-side
+        const binaryFormats = ["xlsx", "xls", "parquet"];
+        if (!isTabular && binaryFormats.includes((format || "").toLowerCase())) {
+          throw new Error("Ce fichier binaire n'est pas disponible via l'API tabulaire. Telechargez-le directement.");
+        }
+        const tool = isTabular ? "query_resource_data" : "download_and_parse_resource";
+        const response = await fetch("/api/datagouv/call", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tool, args: { resource_id: resourceId } }),
+        });
+
+        if (!response.ok) {
+          const errBody = await response.json().catch(() => ({}));
+          throw new Error(errBody.error || `Erreur HTTP ${response.status}`);
+        }
+
+        const json = await response.json();
+        const result = json.result;
+
+        if (result?.type === "tabular_data") {
+          setTabularData(result as ParsedTabularData);
+        } else if (typeof result === "string") {
+          // Don't display binary garbage
+          // eslint-disable-next-line no-control-regex
+          if (/[\x00-\x08\x0E-\x1F]/.test(result.substring(0, 200))) {
+            throw new Error("Contenu binaire non previewable. Telechargez le fichier directement.");
+          }
+          setRawContent(result);
+        }
       }
 
       setLoaded(true);
@@ -80,9 +185,11 @@ export function ResourceDataViewer({
     }
   }
 
-  const canPreview = isTabular || isPreviewableFormat(format);
+  const binaryTabular = formatGroup === "tabular" && !isTabular && ["xlsx", "xls", "parquet"].includes((format || "").toLowerCase());
+  const canPreview = !binaryTabular && (formatGroup !== "unknown" || isTabular || isPreviewableFormat(format));
+  const tooLarge = sizeBytes != null && sizeBytes > previewMaxBytes;
 
-  if (!canPreview) return null;
+  if (!canPreview || tooLarge) return null;
 
   return (
     <div>
@@ -103,7 +210,7 @@ export function ResourceDataViewer({
 
       {expanded && (
         <div className="mt-2 space-y-3">
-          {isLoading && !data && (
+          {isLoading && (
             <div className="space-y-2">
               <Skeleton className="h-8 w-full" />
               <Skeleton className="h-40 w-full" />
@@ -120,14 +227,46 @@ export function ResourceDataViewer({
             </div>
           )}
 
-          {data && (
+          {/* Tabular viewer */}
+          {tabularData && (
             <div className="space-y-3">
-              <DataTable data={data} sourceFormat={format} />
-              <DataChart data={data} />
+              <DataTable data={tabularData} sourceFormat={format} />
+              <DataChart data={tabularData} />
             </div>
           )}
 
-          {rawContent && !data && (
+          {/* JSON tree viewer */}
+          {jsonData != null && (
+            <JsonTreeViewer
+              data={jsonData}
+              totalItems={jsonMeta?.totalItems ?? null}
+              displayedItems={jsonMeta?.displayedItems ?? null}
+              truncated={jsonMeta?.truncated ?? false}
+            />
+          )}
+
+          {/* Image viewer */}
+          {formatGroup === "image" && loaded && (
+            <ImageViewer resourceId={resourceId} resourceTitle={resourceTitle} />
+          )}
+
+          {/* PDF viewer */}
+          {formatGroup === "pdf" && loaded && (
+            <PdfViewer resourceId={resourceId} />
+          )}
+
+          {/* ZIP viewer */}
+          {zipData && (
+            <ZipViewer entries={zipData.entries} totalFiles={zipData.totalFiles} totalSize={zipData.totalSize} />
+          )}
+
+          {/* XML viewer */}
+          {formatGroup === "xml" && rawContent && (
+            <XmlViewer content={rawContent} />
+          )}
+
+          {/* Raw text fallback (non-XML, non-JSON) */}
+          {rawContent && formatGroup !== "xml" && jsonData == null && (
             <div className="rounded-md border bg-muted/30 p-3 max-h-80 overflow-auto">
               <pre className="text-xs whitespace-pre-wrap font-mono">
                 {rawContent.length > 5000
@@ -142,9 +281,7 @@ export function ResourceDataViewer({
   );
 }
 
-/** Check if the format is something we can try to download & parse */
 function isPreviewableFormat(format?: string): boolean {
   if (!format) return false;
-  const f = format.toLowerCase();
-  return ["csv", "tsv", "xlsx", "xls", "json", "jsonl", "geojson", "parquet", "xml"].includes(f);
+  return format.toLowerCase() in FORMAT_MAP;
 }

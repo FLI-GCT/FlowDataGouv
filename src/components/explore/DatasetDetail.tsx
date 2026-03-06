@@ -31,7 +31,6 @@ import {
   Database,
   BarChart3,
   CheckCircle2,
-  Eye,
   Clock,
   Layers,
 } from "lucide-react";
@@ -58,7 +57,7 @@ interface ResourceEnriched {
   tabularApiAvailable?: boolean;
 }
 
-const RES_COLS = 7;
+const RES_COLS = 6;
 
 const RES_PAGE_SIZE = 20;
 const ENRICH_CONCURRENCY = 5;
@@ -310,8 +309,7 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
                       <TableHead className="w-[70px] text-center">Format</TableHead>
                       <TableHead className="w-[80px]">Taille</TableHead>
                       <TableHead className="w-[90px]">Type</TableHead>
-                      <TableHead className="w-[130px]">Statut</TableHead>
-                      <TableHead className="w-[50px]"></TableHead>
+                      <TableHead className="w-[60px]"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -329,10 +327,10 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
                             <TableCell className="py-2.5">
                               <FmtIcon className={`h-4 w-4 ${fmtInfo.color}`} />
                             </TableCell>
-                            <TableCell className="font-medium text-sm py-2.5">
-                              <div className="leading-snug">{res.title}</div>
+                            <TableCell className="font-medium text-sm py-2.5 max-w-0">
+                              <div className="leading-snug truncate" title={res.title}>{res.title}</div>
                               {detail?.mime && (
-                                <span className="text-[10px] text-muted-foreground/60">{detail.mime}</span>
+                                <span className="text-[10px] text-muted-foreground/60 truncate block">{detail.mime}</span>
                               )}
                             </TableCell>
                             <TableCell className="text-center py-2.5">
@@ -352,23 +350,11 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
                                 <span className="text-muted-foreground/40">-</span>
                               )}
                             </TableCell>
-                            <TableCell className="text-xs py-2.5">
-                              {isTabular && (
-                                <span className="text-green-700 dark:text-green-400 flex items-center gap-1">
-                                  <CheckCircle2 className="h-3 w-3" /> Interrogeable
-                                </span>
-                              )}
-                              {!isTabular && isPreviewableFormat(fmt) && detail && (
-                                <span className="text-sky-700 dark:text-sky-400 flex items-center gap-1">
-                                  <Eye className="h-3 w-3" /> Apercu
-                                </span>
-                              )}
-                            </TableCell>
                             <TableCell className="py-2.5">
                               {res.id && (
                                 <a href={`/api/download/${res.id}`} download onClick={(e) => e.stopPropagation()}>
-                                  <Button variant="ghost" size="icon" className="h-7 w-7" title="Telecharger">
-                                    <Download className="h-3.5 w-3.5" />
+                                  <Button variant="outline" size="icon" className="h-8 w-8 text-sky-700 border-sky-300 hover:bg-sky-50 dark:text-sky-400 dark:border-sky-700 dark:hover:bg-sky-950" title="Telecharger">
+                                    <Download className="h-4 w-4" />
                                   </Button>
                                 </a>
                               )}
@@ -384,6 +370,7 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
                                     resourceTitle={res.title}
                                     isTabular={!!isTabular}
                                     format={res.format}
+                                    sizeBytes={res.sizeBytes}
                                   />
                                 </div>
                               </TableCell>
@@ -427,8 +414,8 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
                           )}
                           {res.id && (
                             <a href={`/api/download/${res.id}`} download className="ml-auto">
-                              <Button variant="ghost" size="sm" className="h-6 text-xs gap-1 px-2">
-                                <Download className="h-3 w-3" /> DL
+                              <Button variant="outline" size="sm" className="h-7 text-xs gap-1 px-2.5 font-medium text-sky-700 border-sky-300 hover:bg-sky-50 dark:text-sky-400 dark:border-sky-700 dark:hover:bg-sky-950">
+                                <Download className="h-3.5 w-3.5" /> DL
                               </Button>
                             </a>
                           )}
@@ -442,6 +429,7 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
                           resourceTitle={res.title}
                           isTabular={!!isTabular}
                           format={res.format}
+                          sizeBytes={res.sizeBytes}
                         />
                       </div>
                     )}
@@ -508,5 +496,9 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
 }
 
 function isPreviewableFormat(format: string): boolean {
-  return ["csv", "tsv", "xlsx", "xls", "json", "jsonl", "geojson", "parquet", "xml"].includes(format);
+  return [
+    "csv", "tsv", "xlsx", "xls", "json", "jsonl", "geojson", "parquet", "xml",
+    "pdf", "jpg", "jpeg", "png", "gif", "webp", "svg",
+    "zip", "7z", "rar", "gz", "tar", "gtfs",
+  ].includes(format);
 }

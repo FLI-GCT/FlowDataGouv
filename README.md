@@ -15,6 +15,7 @@ Projet personnel de [Guillaume CLEMENT](https://www.linkedin.com/in/guillaume-cl
 | Re-ranking semantique | Mistral reordonne le top 20 page 1 par pertinence semantique |
 | Explorer le catalogue | SSR + ISR (10 min) depuis catalog.json, fallback client-side |
 | Voir detail dataset/API | REST direct data.gouv.fr + metriques + interrogation CSV (filtrage/tri par colonne) |
+| Previsualiser ressources | Multi-format : CSV/JSON/GeoJSON/XML/ZIP/Image/PDF (lecture partielle, strip geometries, cap reponse) |
 | Telecharger ressources | Cache LRU disque (streaming, eviction par derniere utilisation, 10Go defaut) |
 | Enrichissement catalogue | Mistral batch (categorisation, geo, resume, qualite) |
 | Normalisation taxonomie | Mistral Large (clustering sous-categories) |
@@ -32,6 +33,7 @@ Projet personnel de [Guillaume CLEMENT](https://www.linkedin.com/in/guillaume-cl
 - **Cross-facet counting** : chaque facette exclut son propre filtre pour des comptages precis
 - **Taxonomie 3 niveaux** : 18 categories > sous-categories > sous-sous-categories
 - **Categorisation geographique** : national / regional / departemental / communal + zone precise
+- **Preview multi-format** : CSV, JSON/GeoJSON (arbre collapsible, strip geometries), XML (coloration syntaxique), ZIP (listing contenu), images, PDF — lecture partielle (2 MB max), cap reponse 80 KB, limite env `PREVIEW_MAX_MB`
 - **Cache telechargement LRU** : proxy serveur avec cache disque (streaming, eviction par derniere utilisation, `DOWNLOAD_CACHE_MAX_GB` configurable)
 - **OpenAPI Viewer Swagger-like** : navigation des specs API avec "Try It" integre
 - **RGPD** : Mistral AI (LLM francais), aucune donnee envoyee vers les US
@@ -45,6 +47,9 @@ Projet personnel de [Guillaume CLEMENT](https://www.linkedin.com/in/guillaume-cl
 | Framework | Next.js 16 (App Router), React 19, TypeScript |
 | UI | Tailwind CSS 4 + shadcn/ui (15 composants) + Lucide icons |
 | Graphiques | Recharts 3 (import dynamique, `ssr: false`) |
+| Preview JSON | `react-json-view-lite` (arbre collapsible, zero-dep) |
+| Preview XML | `react-syntax-highlighter` (PrismLight, XML only) |
+| Preview ZIP | `jszip` (listing contenu cote serveur) |
 | IA enrichissement | Mistral AI (`mistral-small-latest`) via `@mistralai/mistralai` |
 | IA normalisation | Mistral AI (`mistral-large-latest`) pour clustering taxonomique |
 | IA recherche | Mistral AI (`mistral-small-latest`) pour expansion de requetes + re-ranking semantique |
@@ -78,6 +83,7 @@ Navigateur (React 19)
     |
     |--- Detail (/explore/dataset/[id], /explore/api/[id])
     |    REST direct data.gouv.fr → metriques, ressources, specs OpenAPI
+    |    Preview multi-format (JSON tree, XML highlight, ZIP listing, images, PDF)
     |    Telechargement via /api/download/{id} (cache LRU disque)
     |
     v
@@ -92,6 +98,7 @@ API Routes Next.js
     |--- /api/download/[id]       GET  — Proxy telechargement avec cache LRU disque
     |--- /api/download/stats      GET  — Stats cache (taille, utilisation, nb fichiers)
     |--- /api/datagouv/call       POST — Proxy REST vers data.gouv.fr (Cache-Control 5 min sur donnees stables)
+    |--- /api/datagouv/download   GET  — Proxy inline (images, PDF) avec whitelist content-type
     |--- /api/dataservice/proxy   POST — Proxy CORS pour "Try It" OpenAPI
     |--- /api/health              GET  — Health check
     v
@@ -315,8 +322,30 @@ Les telechargements de ressources passent par `/api/download/{resourceId}` au li
 | Concurrence | Map `inProgress` pour eviter double-fetch simultane du meme fichier |
 | PM2 cluster | Index lu depuis disque a chaque acces, ecriture atomique (temp + rename) |
 | Fallback | Si erreur cache → redirect 302 vers URL originale data.gouv.fr |
-| Preview | `downloadAndParseResource()` lit depuis le cache si le fichier est deja cache |
+| Preview | Toutes les previsualisations lisent depuis le cache disque |
 | Monitoring | `GET /api/download/stats` → `{ totalSize, maxSize, entryCount, utilizationPercent }` |
+
+## Preview multi-format
+
+Le systeme de previsualisation route chaque ressource vers le viewer adapte selon son format :
+
+| Format | Viewer | Methode |
+|--------|--------|---------|
+| CSV, TSV | `DataTable` + `DataChart` | API tabulaire data.gouv.fr (filtrage/tri par colonne) |
+| XLSX, XLS, Parquet | `DataTable` + `DataChart` | API tabulaire uniquement (binaire non previewable sans) |
+| JSON, JSONL, GeoJSON | `JsonTreeViewer` (`react-json-view-lite`) | Lecture partielle (2 MB), strip geometries GeoJSON, cap 80 KB |
+| XML | `XmlViewer` (`react-syntax-highlighter` PrismLight) | Telechargement texte via cache disque |
+| ZIP, GTFS, 7z, RAR, GZ | `ZipViewer` | Listing `jszip` cote serveur (noms, tailles, dossiers) |
+| JPG, PNG, GIF, WebP, SVG | `ImageViewer` | Proxy inline `/api/datagouv/download` |
+| PDF | `PdfViewer` | Iframe via proxy inline |
+
+### Protections performance
+
+- **Limite de taille** : `PREVIEW_MAX_MB` (defaut 50) — fichiers trop gros masquent le bouton "Visualiser"
+- **Lecture partielle** : JSON lu a max 2 MB du fichier, meme pour des fichiers de 50 MB
+- **Strip GeoJSON** : les coordonnees de geometries sont remplacees par `[Polygon, ~1234 coords]`
+- **Cap reponse** : le JSON envoye au navigateur ne depasse jamais 80 KB (reduction progressive des items)
+- **Binaire detecte** : contenu avec caracteres de controle refuse (pas de garbage a l'ecran)
 
 ## Ecosysteme MCP + Claude Cowork
 
@@ -417,6 +446,7 @@ Ouvrir [http://localhost:3000](http://localhost:3000).
 | `SYNC_SECRET` | Oui | Secret pour proteger l'API de sync (obligatoire pour `/api/sync/catalog`) | - |
 | `RATE_LIMIT_MAX` | Non | Requetes max par jour par IP (routes Mistral) | `500` |
 | `DOWNLOAD_CACHE_MAX_GB` | Non | Taille max du cache telechargement (Go) | `10` |
+| `PREVIEW_MAX_MB` | Non | Taille max fichier pour previsualisation (Mo) | `50` |
 
 ## Structure du projet
 
@@ -447,7 +477,8 @@ src/
 │   │                                    # ResultsToolbar
 │   ├── landing/                         # CatalogSummary, QueryExamples, LatestContent
 │   ├── data/                            # DataTable, DataChart, MetricsChart, OpenApiViewer,
-│   │                                    # DatasetCard, DataserviceCard, ResourceCard
+│   │                                    # JsonTreeViewer, XmlViewer, ZipViewer, ImageViewer,
+│   │                                    # PdfViewer, DatasetCard, DataserviceCard, ResourceCard
 │   ├── layout/                          # AppHeader, AppFooter, HeroSearch
 │   ├── shared/                          # MarkdownRenderer, McpStatusBadge
 │   └── ui/                              # shadcn/ui (15 composants dont checkbox)
