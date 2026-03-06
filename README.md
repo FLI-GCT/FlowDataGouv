@@ -11,7 +11,8 @@ Projet personnel de [Guillaume CLEMENT](https://www.linkedin.com/in/guillaume-cl
 | Chercher des datasets/APIs | Moteur in-memory + expansion Mistral (correction, mots-cles, auto-filtres) |
 | Filtrage facettaire | 6 facettes dynamiques cross-filter + date + qualite |
 | Filtrage geo hierarchique | National / Regional → regions / Departemental → depts / Communal → communes |
-| Scoring pertinence | Word-boundary matching multi-champs (7 champs ponderes + popularite) |
+| Scoring pertinence | Scoring v2 per-field (7 champs ponderes + keyword decay + breadth bonus + popularite) |
+| Re-ranking semantique | Mistral reordonne le top 20 page 1 par pertinence semantique |
 | Explorer le catalogue | SSR + ISR (10 min) depuis catalog.json, fallback client-side |
 | Voir detail dataset/API | REST direct data.gouv.fr + metriques + interrogation CSV (filtrage/tri par colonne) |
 | Telecharger ressources | Cache LRU disque (streaming, eviction par derniere utilisation, 10Go defaut) |
@@ -22,7 +23,9 @@ Projet personnel de [Guillaume CLEMENT](https://www.linkedin.com/in/guillaume-cl
 
 - **73 000+ datasets** indexes, enrichis et categorises par IA
 - **Recherche intelligente** : Mistral corrige les fautes, genere des mots-cles, **coche automatiquement les filtres** (categories, geo)
-- **Moteur de recherche in-memory** : scoring word-boundary sur 73k items, evite les faux positifs ("yonne" ≠ "bayonne")
+- **Moteur de recherche in-memory** : scoring v2 per-field sur 73k items, keyword weight decay, breadth bonus, evite les faux positifs ("yonne" ≠ "bayonne")
+- **Re-ranking semantique** : Mistral reordonne le top 20 resultats (page 1) par pertinence semantique (cache 1h, timeout 1.5s, fallback silencieux)
+- **Cache resultats** : TTL 5 min, max 200 entrees, invalide automatiquement quand store.json change
 - **Facettes dynamiques** : categories, sous-categories (searchable), territoire hierarchique, date, qualite, types, licences
 - **Filtres geo hierarchiques** : National / Regional → liste des regions / Departemental → departements / Communal → communes (avec recherche)
 - **Filtres modernes** : presets date rapides (7j, 30j, 3 mois, 1 an) + score qualite (etoiles)
@@ -44,8 +47,8 @@ Projet personnel de [Guillaume CLEMENT](https://www.linkedin.com/in/guillaume-cl
 | Graphiques | Recharts 3 (import dynamique, `ssr: false`) |
 | IA enrichissement | Mistral AI (`mistral-small-latest`) via `@mistralai/mistralai` |
 | IA normalisation | Mistral AI (`mistral-large-latest`) pour clustering taxonomique |
-| IA recherche | Mistral AI (`mistral-small-latest`) pour expansion de requetes |
-| Moteur recherche | In-memory sur store.json (word-boundary, facettes, scoring) |
+| IA recherche | Mistral AI (`mistral-small-latest`) pour expansion de requetes + re-ranking semantique |
+| Moteur recherche | In-memory sur store.json (word-boundary, scoring v2 per-field, facettes, cache resultats) |
 | API source | REST direct `data.gouv.fr/api/1` |
 | MCP | `@modelcontextprotocol/sdk` (TypeScript, stdio) |
 
@@ -80,7 +83,7 @@ Navigateur (React 19)
     v
 API Routes Next.js
     |
-    |--- /api/catalog/search      POST — Recherche intelligente (Mistral + scoring + facettes)
+    |--- /api/catalog/search      POST — Recherche intelligente (Mistral expansion + scoring v2 + rerank + facettes + logging)
     |--- /api/catalog/summary     GET  — Stats legeres (~50KB : categories, top, geo)
     |--- /api/sync/catalog        POST — Sync incrementale (fetch + enrich + normalize + build)
     |--- /api/catalog             GET  — Sert data/catalog.json complet
@@ -111,23 +114,49 @@ Le moteur in-memory (`src/lib/catalog/search-engine.ts`) charge store.json en me
 Utilise des regex `\b` pre-compilees par keyword.
 
 ### Normalisation des keywords
-Les phrases longues sont decoupees en tokens significatifs :
+Les phrases longues (3+ mots) sont decoupees en tokens significatifs. Les compounds de 2 mots sont gardes intacts (evite les faux positifs) :
 ```
 "Trouve tout sur l'Yonne ou sur Dijon" → ["Yonne", "Dijon"]
+"identifiant entreprise" → ["identifiant entreprise"]  (PAS ["identifiant", "entreprise"])
+"numero SIREN" → ["numero SIREN"]  (PAS ["numero", "SIREN"])
 ```
 Les stop words francais et termes administratifs generiques sont filtres.
 
-### Scoring multi-champs
+### Scoring v2 per-field avec keyword weight decay
+
 | Champ | Poids |
 |-------|-------|
 | Titre | 10 |
-| Zone geo | 8 |
 | Organisation | 5 |
 | Tags | 4 |
 | Themes | 3 |
 | Resume | 3 |
+| Zone geo | 2 (guard: ignore si vide) |
 | Description | 1 |
-| Popularite (log) | +0.5 |
+| Popularite (log10) | +2.5 |
+| Qualite | +1.0 |
+| HVD (High Value Dataset) | +3 |
+
+**Keyword weight decay** — le premier keyword (intention principale) a le poids max, les suivants (synonymes/qualificatifs) contribuent moins :
+```
+keyword[0] → 1.0  (intention principale)
+keyword[1] → 0.6
+keyword[2] → 0.4
+keyword[3+] → 0.3
+```
+
+**Breadth bonus** — +15% par keyword supplementaire matchant le meme champ (cap a 2 extra).
+
+### Re-ranking semantique (Mistral)
+
+Sur la page 1 (tri par pertinence), les 20 premiers resultats sont re-ordonnes par Mistral Small :
+- Cache 1h, timeout 1.5s, fallback silencieux si erreur/timeout
+- Privilegie les sources primaires, les datasets nationaux de reference, la qualite et la popularite
+- Rate limit partage avec l'expansion (un seul check)
+
+### Cache resultats
+
+Cache in-memory des resultats de recherche (TTL 5 min, max 200 entrees). Invalide automatiquement quand store.json change. Optimise les requetes repetees identiques.
 
 ### Facettes cross-filter
 6 facettes classiques + 2 filtres avances, chaque facette exclut son propre filtre pour des comptages precis :
@@ -140,13 +169,42 @@ Les stop words francais et termes administratifs generiques sont filtres.
 - **dateAfter** : presets rapides (7 derniers jours, 30j, 3 mois, 1 an)
 - **qualityMin** : score minimum (2+, 3+, 4+) avec affichage etoiles
 
+### Pipeline de recherche complet
+
+```
+Requete utilisateur
+  → Expansion Mistral (correction + mots-cles + filtres suggeres)
+  → Scoring v2 per-field (keyword weight decay + breadth bonus)
+  → Filtrage facettaire (categories, geo, types, date, qualite)
+  → Re-ranking Mistral (top 20, page 1 uniquement)
+  → Logging consolide (requete + Mistral + top 3 resultats)
+  → Reponse JSON
+```
+
 ### Expansion Mistral → auto-filtrage
 La requete est enrichie par Mistral Small, puis les filtres sont **coches automatiquement** :
 1. Correction des fautes d'orthographe (bandeau discret)
-2. Generation de 3-5 mots-cles pertinents (scoring boost)
+2. Generation de 3-5 mots-cles pertinents (scoring boost avec weight decay)
 3. Detection de categories implicites → **auto-coche dans le FacetPanel**
 4. Detection de zones geographiques → **auto-coche geoScope + geoArea** + injection comme keywords (scoring boost)
-5. L'utilisateur peut decocher les filtres auto-appliques normalement → reset coherent
+5. Reconnaissance des regions/departements **meme sans accents** et avec anciennes appellations ("rhone alpes" → Auvergne-Rhone-Alpes, "paca" → Provence-Alpes-Cote d'Azur)
+6. L'utilisateur peut decocher les filtres auto-appliques normalement → reset coherent
+
+### Logging consolide
+
+Chaque requete de recherche est loguee avec :
+- Requete originale, correction Mistral, mots-cles generes
+- Filtres auto-coches par Mistral (categories, geo, areas)
+- Filtres utilisateur manuels
+- Total resultats, statut rerank, temps de reponse
+- Top 3 resultats (titre, score, vues)
+
+```
+[search] q="ecoles rhone alpes" corrected="ecoles Rhone-Alpes" kw=[...] mistral=[cat=education-recherche, geo=regional, area=Auvergne-Rhone-Alpes] → 2644 results (reranked) (2901ms)
+  1. "Lycees publics - Auvergne-Rhone-alpes" [18.4] 666v
+  2. "Departements de france" [18.4] 40663v
+  3. "Reseau interurbain Cars Region Express" [18.7] 3870v
+```
 
 ## Systeme de sync et enrichissement
 
@@ -230,7 +288,7 @@ Les routes qui appellent Mistral AI sont protegees par un rate limiter in-memory
 
 | Route | Comportement |
 |-------|-------------|
-| `/api/catalog/search` | Rate limit **uniquement si le cache Mistral ne contient pas la requete** (`isExpansionCached()`) |
+| `/api/catalog/search` | Rate limit **uniquement si le cache Mistral (expansion ou rerank) ne contient pas la requete** |
 | `/api/search/expand` | Rate limit systematique |
 | `/api/search/analyze` | Rate limit systematique |
 
@@ -373,7 +431,7 @@ src/
 │   │   └── api/[id]/page.tsx            # Detail API
 │   ├── mcp/page.tsx                     # Explorateur MCP
 │   └── api/
-│       ├── catalog/search/route.ts      # Recherche intelligente (Mistral + scoring + facettes)
+│       ├── catalog/search/route.ts      # Recherche intelligente (expansion + scoring v2 + rerank + logging)
 │       ├── catalog/summary/route.ts     # Stats legeres (~50KB)
 │       ├── sync/catalog/route.ts        # Sync pipeline (fetch + enrich + normalize)
 │       ├── catalog/route.ts             # Sert catalog.json complet
@@ -394,10 +452,11 @@ src/
 │   ├── shared/                          # MarkdownRenderer, McpStatusBadge
 │   └── ui/                              # shadcn/ui (15 composants dont checkbox)
 ├── lib/
-│   ├── catalog/search-engine.ts         # Moteur recherche in-memory (word-boundary, facettes, date, qualite)
+│   ├── catalog/search-engine.ts         # Moteur recherche in-memory (scoring v2, keyword decay, cache resultats)
 │   ├── cache/download-cache.ts          # Cache LRU disque (streaming, eviction, concurrence)
 │   ├── sync/catalog.ts                  # Pipeline sync (1700+ lignes)
-│   ├── search/expand.ts                 # Expansion Mistral (correction + mots-cles + filtres)
+│   ├── search/expand.ts                 # Expansion Mistral (correction + mots-cles + filtres + geo sans accents)
+│   ├── search/rerank.ts                 # Re-ranking Mistral (top 20, cache 1h, timeout 1.5s)
 │   ├── search/analyze.ts               # Analyse agentique (disponible via API)
 │   ├── datagouv/api.ts                  # Client REST data.gouv.fr (preview lit depuis cache)
 │   ├── rate-limit.ts                    # Rate limiter in-memory (IP anonymisee, cache-aware)
@@ -412,18 +471,18 @@ data/
 ## Deploiement production
 
 ```bash
-# Build
+# Build (postbuild copie automatiquement static/, public/ et .env.local dans standalone/)
 npm run build
 
-# Copier les fichiers statiques dans le standalone
-cp -r public .next/standalone/
-cp -r .next/static .next/standalone/.next/
+# Lien symbolique vers data/ (une seule fois)
 ln -sf $(pwd)/data .next/standalone/data
 
 # Demarrer avec PM2
 pm2 start ecosystem.config.cjs
 pm2 save
 ```
+
+> **Note** : le script `postbuild` (dans `package.json`) copie automatiquement `.next/static`, `public/` et `.env.local` dans `.next/standalone/`. Ne jamais supprimer `.next/` sans rebuilder ensuite.
 
 Voir `.env.production.example` pour les variables de production.
 
