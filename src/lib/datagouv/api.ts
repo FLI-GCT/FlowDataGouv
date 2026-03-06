@@ -904,7 +904,16 @@ export async function downloadResourceJson(
     await fd.read(buf, 0, buf.length, 0);
     const text = buf.toString("utf-8");
 
-    const firstChar = text.trimStart()[0];
+    const trimmed = text.trimStart();
+    const firstChar = trimmed[0];
+
+    // --- HTML mislabeled as JSON ---
+    if (firstChar === "<" || trimmed.substring(0, 15).toLowerCase().startsWith("<!doctype")) {
+      return {
+        data: { _notice: "Ce fichier est taggue JSON mais contient du HTML. Il s'agit probablement d'une API web, pas d'un fichier de donnees." },
+        totalItems: null, displayedItems: null, truncated: false, resourceTitle,
+      };
+    }
 
     // --- JSONL (not starting with [ or {) ---
     if (firstChar !== "[" && firstChar !== "{") {
