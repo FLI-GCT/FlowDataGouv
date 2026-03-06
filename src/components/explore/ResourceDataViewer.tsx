@@ -15,6 +15,9 @@ import {
   Loader2,
   AlertTriangle,
   Eye,
+  ExternalLink,
+  Globe,
+  FileCode2,
 } from "lucide-react";
 import type { ParsedTabularData } from "@/lib/parsers";
 
@@ -235,8 +238,13 @@ export function ResourceDataViewer({
             </div>
           )}
 
+          {/* API documentation card (HTML mislabeled as JSON) */}
+          {jsonData != null && typeof jsonData === "object" && !Array.isArray(jsonData) && (jsonData as Record<string, unknown>)._type === "html_api" && (
+            <ApiDocCard data={jsonData as Record<string, string>} />
+          )}
+
           {/* JSON tree viewer */}
-          {jsonData != null && (
+          {jsonData != null && !(typeof jsonData === "object" && !Array.isArray(jsonData) && (jsonData as Record<string, unknown>)._type === "html_api") && (
             <JsonTreeViewer
               data={jsonData}
               totalItems={jsonMeta?.totalItems ?? null}
@@ -277,6 +285,43 @@ export function ResourceDataViewer({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function ApiDocCard({ data }: { data: Record<string, string> }) {
+  return (
+    <div className="rounded-lg border bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-indigo-950/40 dark:to-blue-950/40 p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <Globe className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+        <span className="font-semibold text-sm text-indigo-900 dark:text-indigo-200">
+          {data.framework || "API Web"}
+        </span>
+      </div>
+      {data.title && (
+        <p className="text-sm text-foreground/80">{data.title}</p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        {data.url && (
+          <a href={data.url} target="_blank" rel="noopener noreferrer">
+            <Button variant="outline" size="sm" className="gap-1.5 text-xs bg-white dark:bg-background">
+              <ExternalLink className="h-3.5 w-3.5" />
+              Ouvrir la documentation
+            </Button>
+          </a>
+        )}
+        {data.specUrl && (
+          <a href={data.specUrl} target="_blank" rel="noopener noreferrer">
+            <Button variant="outline" size="sm" className="gap-1.5 text-xs bg-white dark:bg-background">
+              <FileCode2 className="h-3.5 w-3.5" />
+              Specification OpenAPI
+            </Button>
+          </a>
+        )}
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Cette ressource est une documentation d&apos;API interactive, pas un fichier de donnees telechargeable.
+      </p>
     </div>
   );
 }

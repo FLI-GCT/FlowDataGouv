@@ -891,7 +891,7 @@ export async function downloadResourceJson(
   maxItems = 100,
   maxBytes = PREVIEW_MAX_BYTES,
 ): Promise<ParsedJsonPreview> {
-  const { filePath, resourceTitle } = await getCachedOrDownload(resourceId, maxBytes);
+  const { filePath, resourceTitle, resourceUrl } = await getCachedOrDownload(resourceId, maxBytes);
   const { stat, open } = await import("fs/promises");
 
   const fileInfo = await stat(filePath);
@@ -907,10 +907,10 @@ export async function downloadResourceJson(
     const trimmed = text.trimStart();
     const firstChar = trimmed[0];
 
-    // --- HTML mislabeled as JSON ---
+    // --- HTML mislabeled as JSON (API docs, web pages) ---
     if (firstChar === "<" || trimmed.substring(0, 15).toLowerCase().startsWith("<!doctype")) {
       return {
-        data: { _notice: "Ce fichier est taggue JSON mais contient du HTML. Il s'agit probablement d'une API web, pas d'un fichier de donnees." },
+        data: { _type: "html_api", ...parseHtmlApiInfo(trimmed, resourceUrl) },
         totalItems: null, displayedItems: null, truncated: false, resourceTitle,
       };
     }
@@ -960,6 +960,31 @@ export async function downloadResourceJson(
 /**
  * Post-process: strip GeoJSON geometry, then cap response size.
  */
+/**
+ * Extract useful info from an HTML page mislabeled as JSON (API docs, Swagger, ReDoc…).
+ */
+function parseHtmlApiInfo(html: string, resourceUrl: string): Record<string, string> {
+  const info: Record<string, string> = { url: resourceUrl };
+
+  // Title
+  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  if (titleMatch) info.title = titleMatch[1].trim();
+
+  // OpenAPI spec URL (ReDoc, Swagger)
+  const specMatch =
+    html.match(/spec-url=['"]([^'"]+)['"]/i) ||
+    html.match(/url:\s*['"]([^'"]+\.(?:yml|yaml|json))['"]/i) ||
+    html.match(/SwaggerUIBundle\(\s*\{[^}]*url:\s*['"]([^'"]+)['"]/i);
+  if (specMatch) info.specUrl = specMatch[1];
+
+  // Detect doc framework
+  if (html.includes("redoc")) info.framework = "ReDoc";
+  else if (html.includes("swagger")) info.framework = "Swagger UI";
+  else info.framework = "Documentation API";
+
+  return info;
+}
+
 function finalize(preview: ParsedJsonPreview, resourceTitle: string): ParsedJsonPreview {
   stripGeometry(preview);
   return capResponseSize(preview, resourceTitle);
