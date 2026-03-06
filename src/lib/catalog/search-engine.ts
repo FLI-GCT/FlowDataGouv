@@ -273,6 +273,20 @@ interface Store {
   ds: Record<string, StoredDataset>;
 }
 
+// ── Scoring constants (v2: per-field with breadth bonus) ────────
+
+const SCORE_FIELDS: { key: keyof SearchableItem; weight: number; label: string; guard?: boolean }[] = [
+  { key: "titleLower",   weight: 10, label: "title" },
+  { key: "orgLower",     weight: 5,  label: "org" },
+  { key: "tagsJoined",   weight: 4,  label: "tags" },
+  { key: "themesJoined", weight: 3,  label: "themes" },
+  { key: "summaryLower", weight: 3,  label: "summary" },
+  { key: "geoAreaLower", weight: 2,  label: "geo", guard: true },
+  { key: "descLower",    weight: 1,  label: "desc" },
+];
+const BREADTH_BONUS = 0.15;  // +15% per extra keyword matching same field
+const BREADTH_CAP = 2;       // max 2 extra keywords counted
+
 // ── Search Engine ────────────────────────────────────────────────
 
 const STORE_PATH = () => path.join(process.cwd(), "data", "store.json");
@@ -396,6 +410,31 @@ class CatalogSearchEngine {
       scored = this.items.map((item) => ({ item, score: 0 }));
     }
 
+    // Debug: log top 10 scored items with per-field breakdown
+    if (hasTextSearch && scored.length > 0) {
+      const top10 = [...scored].sort((a, b) => b.score - a.score).slice(0, 10);
+      const matcherNames = matchers.map(m => m.kw).join(", ");
+      const lines = top10.map((s, i) => {
+        const bd: string[] = [];
+        for (const { key, weight, label, guard } of SCORE_FIELDS) {
+          if (guard && !s.item[key]) continue;
+          const text = s.item[key] as string;
+          let mc = 0;
+          for (const { match } of matchers) { if (match(text)) mc++; }
+          if (mc > 0) {
+            const pts = weight + Math.min(mc - 1, BREADTH_CAP) * weight * BREADTH_BONUS;
+            bd.push(`${label}=${pts.toFixed(1)}`);
+          }
+        }
+        const pop = Math.log10(1 + s.item.views + s.item.downloads) * 2.5;
+        bd.push(`pop=${pop.toFixed(1)}`);
+        bd.push(`q=${s.item.quality}`);
+        if (s.item.hasHvd) bd.push("hvd=3");
+        return `  #${i + 1} [${s.score.toFixed(1)}] "${s.item.title.slice(0, 55)}" ${bd.join(" ")} | ${s.item.views}v`;
+      });
+      console.error(`[search/score] matchers=[${matcherNames}]\n${lines.join("\n")}`);
+    }
+
     // Apply facet filters
     const filtered = scored.filter(({ item }) => {
       if (params.categories?.length && !params.categories.includes(item.category)) return false;
@@ -459,30 +498,32 @@ class CatalogSearchEngine {
     return { items, total, page, pageSize, facets };
   }
 
-  /** Score an item against keywords using word-boundary matching */
+  /**
+   * Score an item against keywords (v2: per-field with breadth bonus).
+   * Each field scores once (base weight), with a small capped bonus for
+   * additional keyword matches. Prevents synonym expansion from inflating
+   * scores for long titles over short authoritative ones.
+   */
   private scoreItem(
     item: SearchableItem,
     matchers: { kw: string; match: (text: string) => boolean }[]
   ): number {
     let score = 0;
-    for (const { match } of matchers) {
-      if (match(item.titleLower)) score += 10;
-      if (match(item.orgLower)) score += 5;
-      if (match(item.tagsJoined)) score += 4;
-      if (match(item.themesJoined)) score += 3;
-      if (match(item.summaryLower)) score += 3;
-      // geoArea: reduced from 8 to 2 — prevents regional datasets
-      // from dominating national ones on generic queries
-      if (item.geoAreaLower && match(item.geoAreaLower)) score += 2;
-      if (match(item.descLower)) score += 1;
+    for (const { key, weight, guard } of SCORE_FIELDS) {
+      if (guard && !item[key]) continue;
+      const text = item[key] as string;
+      let matchCount = 0;
+      for (const { match } of matchers) {
+        if (match(text)) matchCount++;
+      }
+      if (matchCount > 0) {
+        score += weight;
+        score += Math.min(matchCount - 1, BREADTH_CAP) * weight * BREADTH_BONUS;
+      }
     }
     if (score > 0) {
-      // Popularity boost: log10 * 2.5 (was * 0.5)
-      // SIRENE INSEE: 16.6 vs regional extract: 8.7 → 7.9 point spread
       score += Math.log10(1 + item.views + item.downloads) * 2.5;
-      // Quality bonus: 1 point per quality level (1-5)
       score += item.quality * 1.0;
-      // HVD (High Value Dataset, EU label) boost
       if (item.hasHvd) score += 3;
     }
     return score;

@@ -11,6 +11,7 @@
 import { NextResponse } from "next/server";
 import { searchEngine } from "@/lib/catalog/search-engine";
 import { expandSearchQuery, isExpansionCached, type SearchExpansion } from "@/lib/search/expand";
+import { rerankResults, isRerankCached } from "@/lib/search/rerank";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 export const maxDuration = 30;
@@ -41,8 +42,8 @@ export async function POST(request: Request) {
     let keywords: string[] | undefined;
 
     if (body.query?.trim()) {
-      // Only count against quota when Mistral will actually be called (not a cache hit)
-      if (!isExpansionCached(body.query.trim())) {
+      // Only count against quota when Mistral will actually be called (not all cached)
+      if (!isExpansionCached(body.query.trim()) || !isRerankCached(body.query.trim())) {
         const rl = checkRateLimit(getClientIp(request));
         if (!rl.success) {
           return NextResponse.json(
@@ -94,6 +95,23 @@ export async function POST(request: Request) {
       pageSize: body.pageSize,
     });
 
+    // Re-rank page 1 via Mistral (semantic relevance)
+    let reranked = false;
+    const sort = body.sort || (keywords ? "relevance" : "downloads");
+    if (sort === "relevance" && (body.page || 1) === 1
+        && result.items.length >= 5 && expansion?.wasExpanded) {
+      const rr = await rerankResults(
+        body.query!.trim(),
+        expansion.corrected,
+        result.items.slice(0, 20),
+      );
+      if (rr.wasReranked) {
+        const idOrder = new Map(rr.rerankedIds.map((id, i) => [id, i]));
+        result.items.sort((a, b) => (idOrder.get(a.id) ?? 999) - (idOrder.get(b.id) ?? 999));
+        reranked = true;
+      }
+    }
+
     const ms = Date.now() - t0;
     if (expansion?.wasExpanded) {
       const kw = expansion.keywords.join(", ");
@@ -123,6 +141,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ...result,
       ...(expansion ? { expansion } : {}),
+      ...(reranked ? { reranked: true } : {}),
     });
   } catch (err) {
     console.error("[catalog/search] Error:", err);
