@@ -11,47 +11,33 @@ interface McpStatus {
   checkedAt: string;
 }
 
-const POLL_INTERVAL = 60_000; // 60s
+/**
+ * Shared fetch helper — the server caches the result for 60s,
+ * so multiple components/pages hitting this cost nothing extra.
+ */
+async function fetchMcpStatus(): Promise<McpStatus> {
+  try {
+    const res = await fetch("/api/mcp/status");
+    return await res.json();
+  } catch {
+    return {
+      online: false,
+      error: "Impossible de verifier le statut",
+      checkedAt: new Date().toISOString(),
+    };
+  }
+}
 
 export function McpStatusBadge() {
   const [status, setStatus] = useState<McpStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchStatus = useCallback(async () => {
-    try {
-      const res = await fetch("/api/mcp/status");
-      const data: McpStatus = await res.json();
-      setStatus(data);
-    } catch {
-      setStatus({
-        online: false,
-        error: "Impossible de verifier le statut",
-        checkedAt: new Date().toISOString(),
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    fetchStatus();
-    let interval = setInterval(fetchStatus, POLL_INTERVAL);
-
-    // Pause polling when tab is hidden
-    const onVisibility = () => {
-      clearInterval(interval);
-      if (document.visibilityState === "visible") {
-        fetchStatus();
-        interval = setInterval(fetchStatus, POLL_INTERVAL);
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-
-    return () => {
-      clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [fetchStatus]);
+    fetchMcpStatus().then((s) => {
+      setStatus(s);
+      setLoading(false);
+    });
+  }, []);
 
   if (loading) {
     return (
@@ -83,9 +69,8 @@ export function McpStatusBadge() {
   }
 
   return (
-    <button
-      onClick={fetchStatus}
-      className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-700 transition-colors hover:bg-red-100 dark:border-red-900 dark:bg-red-950 dark:text-red-400 dark:hover:bg-red-900"
+    <div
+      className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-400"
       title={status.error || "data.gouv.fr hors ligne"}
     >
       <span className="relative flex h-2 w-2">
@@ -93,8 +78,7 @@ export function McpStatusBadge() {
       </span>
       <WifiOff className="h-3 w-3" />
       <span>data.gouv.fr hors ligne</span>
-      <Activity className="h-3 w-3 opacity-50" />
-    </button>
+    </div>
   );
 }
 
@@ -105,39 +89,16 @@ export function McpStatusCard() {
   const [status, setStatus] = useState<McpStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchStatus = useCallback(async () => {
+  const refresh = useCallback(async () => {
     setLoading(true);
-    try {
-      const res = await fetch("/api/mcp/status");
-      const data: McpStatus = await res.json();
-      setStatus(data);
-    } catch {
-      setStatus({
-        online: false,
-        error: "Impossible de verifier le statut",
-        checkedAt: new Date().toISOString(),
-      });
-    } finally {
-      setLoading(false);
-    }
+    const s = await fetchMcpStatus();
+    setStatus(s);
+    setLoading(false);
   }, []);
 
   useEffect(() => {
-    fetchStatus();
-    let interval = setInterval(fetchStatus, POLL_INTERVAL);
-    const onVisibility = () => {
-      clearInterval(interval);
-      if (document.visibilityState === "visible") {
-        fetchStatus();
-        interval = setInterval(fetchStatus, POLL_INTERVAL);
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [fetchStatus]);
+    refresh();
+  }, [refresh]);
 
   return (
     <div className="rounded-lg border bg-card p-4">
@@ -147,7 +108,7 @@ export function McpStatusCard() {
           <span className="text-sm font-medium">Statut de data.gouv.fr</span>
         </div>
         <button
-          onClick={fetchStatus}
+          onClick={refresh}
           disabled={loading}
           className="text-xs text-muted-foreground underline-offset-2 hover:underline disabled:opacity-50"
         >
