@@ -41,6 +41,7 @@ export interface SearchableItem {
   themesJoined: string;
   quality: number;
   descLower: string;
+  hasHvd: boolean;
 }
 
 export interface SearchParams {
@@ -329,6 +330,7 @@ class CatalogSearchEngine {
         themesJoined: (e?.th || []).join(" ").toLowerCase(),
         quality: e?.q || 0,
         descLower: (ds.desc || "").toLowerCase(),
+        hasHvd: (ds.tags || []).includes("hvd"),
       };
       items.push(item);
     }
@@ -469,13 +471,19 @@ class CatalogSearchEngine {
       if (match(item.tagsJoined)) score += 4;
       if (match(item.themesJoined)) score += 3;
       if (match(item.summaryLower)) score += 3;
-      // geoArea: strong match if keyword matches area name
-      if (item.geoAreaLower && match(item.geoAreaLower)) score += 8;
+      // geoArea: reduced from 8 to 2 — prevents regional datasets
+      // from dominating national ones on generic queries
+      if (item.geoAreaLower && match(item.geoAreaLower)) score += 2;
       if (match(item.descLower)) score += 1;
     }
-    // Popularity boost (log scale)
     if (score > 0) {
-      score += Math.log10(1 + item.views + item.downloads) * 0.5;
+      // Popularity boost: log10 * 2.5 (was * 0.5)
+      // SIRENE INSEE: 16.6 vs regional extract: 8.7 → 7.9 point spread
+      score += Math.log10(1 + item.views + item.downloads) * 2.5;
+      // Quality bonus: 1 point per quality level (1-5)
+      score += item.quality * 1.0;
+      // HVD (High Value Dataset, EU label) boost
+      if (item.hasHvd) score += 3;
     }
     return score;
   }
