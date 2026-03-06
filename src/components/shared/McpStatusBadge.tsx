@@ -11,7 +11,7 @@ interface McpStatus {
   checkedAt: string;
 }
 
-const POLL_INTERVAL = 30_000; // 30s
+const POLL_INTERVAL = 60_000; // 60s
 
 export function McpStatusBadge() {
   const [status, setStatus] = useState<McpStatus | null>(null);
@@ -35,8 +35,22 @@ export function McpStatusBadge() {
 
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(fetchStatus, POLL_INTERVAL);
-    return () => clearInterval(interval);
+    let interval = setInterval(fetchStatus, POLL_INTERVAL);
+
+    // Pause polling when tab is hidden
+    const onVisibility = () => {
+      clearInterval(interval);
+      if (document.visibilityState === "visible") {
+        fetchStatus();
+        interval = setInterval(fetchStatus, POLL_INTERVAL);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [fetchStatus]);
 
   if (loading) {
@@ -110,8 +124,19 @@ export function McpStatusCard() {
 
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(fetchStatus, POLL_INTERVAL);
-    return () => clearInterval(interval);
+    let interval = setInterval(fetchStatus, POLL_INTERVAL);
+    const onVisibility = () => {
+      clearInterval(interval);
+      if (document.visibilityState === "visible") {
+        fetchStatus();
+        interval = setInterval(fetchStatus, POLL_INTERVAL);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [fetchStatus]);
 
   return (
