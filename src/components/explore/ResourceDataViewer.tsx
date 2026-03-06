@@ -122,7 +122,7 @@ export function ResourceDataViewer({
 
           {data && (
             <div className="space-y-3">
-              <DataTable data={data} />
+              <DataTable data={data} sourceFormat={format} />
               <DataChart data={data} />
             </div>
           )}

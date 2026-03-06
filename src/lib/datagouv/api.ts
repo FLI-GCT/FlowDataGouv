@@ -417,17 +417,35 @@ function parseCsvContent(text: string, maxRows: number): Record<string, string>[
   return rows;
 }
 
+function flattenValue(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  return JSON.stringify(v);
+}
+
+function flattenObject(obj: Record<string, unknown>, prefix = ""): Record<string, string> {
+  const row: Record<string, string> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    const key = prefix ? `${prefix}.${k}` : k;
+    if (v != null && typeof v === "object" && !Array.isArray(v)) {
+      Object.assign(row, flattenObject(v as Record<string, unknown>, key));
+    } else {
+      row[key] = flattenValue(v);
+    }
+  }
+  return row;
+}
+
 function parseJsonContent(text: string, maxRows: number): Record<string, string>[] {
   try {
     const data = JSON.parse(text);
     const items = Array.isArray(data) ? data : [data];
-    return items.slice(0, maxRows).map((item) => {
-      const row: Record<string, string> = {};
-      for (const [k, v] of Object.entries(item)) {
-        row[k] = v != null ? String(v) : "";
-      }
-      return row;
-    });
+    return items.slice(0, maxRows).map((item) =>
+      typeof item === "object" && item !== null
+        ? flattenObject(item as Record<string, unknown>)
+        : { value: flattenValue(item) }
+    );
   } catch {
     // Try JSONL
     const lines = text.trim().split("\n");
@@ -435,11 +453,11 @@ function parseJsonContent(text: string, maxRows: number): Record<string, string>
     for (const line of lines.slice(0, maxRows)) {
       try {
         const item = JSON.parse(line);
-        const row: Record<string, string> = {};
-        for (const [k, v] of Object.entries(item)) {
-          row[k] = v != null ? String(v) : "";
-        }
-        rows.push(row);
+        rows.push(
+          typeof item === "object" && item !== null
+            ? flattenObject(item as Record<string, unknown>)
+            : { value: flattenValue(item) }
+        );
       } catch { /* skip */ }
     }
     return rows;

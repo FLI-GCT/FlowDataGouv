@@ -26,11 +26,12 @@ import type { ParsedTabularData } from "@/lib/parsers";
 
 interface DataTableProps {
   data: ParsedTabularData;
+  sourceFormat?: string;
 }
 
 const PAGE_SIZE = 10;
 
-export function DataTable({ data }: DataTableProps) {
+export function DataTable({ data, sourceFormat }: DataTableProps) {
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [filter, setFilter] = useState("");
@@ -81,6 +82,8 @@ export function DataTable({ data }: DataTableProps) {
     setPage(0);
   }
 
+  const isJsonSource = sourceFormat && ["json", "jsonl", "geojson"].includes(sourceFormat.toLowerCase());
+
   function exportCsv() {
     const header = columns.join(",");
     const csvRows = sortedRows.map((row) =>
@@ -92,6 +95,21 @@ export function DataTable({ data }: DataTableProps) {
     const a = document.createElement("a");
     a.href = url;
     a.download = `${data.resourceTitle || "data"}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportJson() {
+    const jsonData = sortedRows.map((row) => {
+      const obj: Record<string, string> = {};
+      for (const col of columns) obj[col] = row[col] || "";
+      return obj;
+    });
+    const blob = new Blob([JSON.stringify(jsonData, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${data.resourceTitle || "data"}.json`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -135,10 +153,17 @@ export function DataTable({ data }: DataTableProps) {
               className="h-7 pl-7 text-xs w-40"
             />
           </div>
-          <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={exportCsv}>
-            <Download className="h-3 w-3" />
-            CSV
-          </Button>
+          {isJsonSource ? (
+            <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={exportJson}>
+              <Download className="h-3 w-3" />
+              JSON
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={exportCsv}>
+              <Download className="h-3 w-3" />
+              CSV
+            </Button>
+          )}
         </div>
       </div>
 
