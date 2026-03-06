@@ -200,23 +200,15 @@ function normalizeKeywords(keywords: string[]): string[] {
     const trimmed = kw.trim();
     if (!trimmed) continue;
 
-    // Single word or short compound (2 words) → keep as-is if not a stop word
+    // Single word or short compound (2 words) → keep as-is, no decomposition
+    // Keeping 2-word compounds intact prevents false positives
+    // (e.g. "identifiant entreprise" won't match "entreprise" alone)
     const words = trimmed.split(/[\s'',;:!?]+/).filter(Boolean);
     if (words.length <= 2) {
       const lower = trimmed.toLowerCase();
       if (!STOP_WORDS.has(lower) && lower.length >= 2 && !seen.has(lower)) {
         seen.add(lower);
         result.push(trimmed);
-      }
-      // Also add individual words for 2-word compounds
-      if (words.length === 2) {
-        for (const w of words) {
-          const wl = w.toLowerCase();
-          if (!STOP_WORDS.has(wl) && wl.length >= 2 && !seen.has(wl)) {
-            seen.add(wl);
-            result.push(w);
-          }
-        }
       }
       continue;
     }
@@ -286,6 +278,26 @@ const SCORE_FIELDS: { key: keyof SearchableItem; weight: number; label: string; 
 ];
 const BREADTH_BONUS = 0.15;  // +15% per extra keyword matching same field
 const BREADTH_CAP = 2;       // max 2 extra keywords counted
+// Keyword weight decay: first keyword (main intent) has full weight,
+// subsequent keywords (synonyms/qualifiers) contribute less
+const KW_WEIGHTS = [1.0, 0.6, 0.4, 0.3, 0.3];
+
+// ── Result cache ────────────────────────────────────────────────
+
+const RESULT_CACHE_TTL = 5 * 60_000; // 5 minutes
+const RESULT_CACHE_MAX = 200;
+
+interface CachedResult { result: SearchResult; timestamp: number }
+const resultCache = new Map<string, CachedResult>();
+
+function resultCacheKey(params: SearchParams): string {
+  return JSON.stringify([
+    params.keywords, params.categories, params.subcategories,
+    params.geoScopes, params.geoAreas, params.types, params.licenses,
+    params.dateAfter, params.qualityMin, params.sort, params.sortDir,
+    params.page, params.pageSize,
+  ]);
+}
 
 // ── Search Engine ────────────────────────────────────────────────
 
@@ -371,6 +383,7 @@ class CatalogSearchEngine {
       const stat = await fs.stat(STORE_PATH());
       if (stat.mtimeMs !== this.storeMtime) {
         console.log("[search-engine] store.json changed, reloading...");
+        resultCache.clear();
         this.loading = this.load();
         await this.loading;
         this.loading = null;
@@ -384,16 +397,23 @@ class CatalogSearchEngine {
   async search(params: SearchParams): Promise<SearchResult> {
     await this.ensureFresh();
 
+    const cKey = resultCacheKey(params);
+    const cached = resultCache.get(cKey);
+    if (cached && Date.now() - cached.timestamp < RESULT_CACHE_TTL) {
+      return cached.result;
+    }
+
     const page = Math.max(1, params.page || 1);
     const pageSize = Math.min(100, Math.max(1, params.pageSize || 20));
     const hasTextSearch = params.keywords && params.keywords.length > 0;
 
-    // Normalize & pre-compile word matchers for text search
-    let matchers: { kw: string; match: (text: string) => boolean }[] = [];
+    // Normalize & pre-compile word matchers for text search (with weight decay)
+    let matchers: { kw: string; kwWeight: number; match: (text: string) => boolean }[] = [];
     if (hasTextSearch) {
       const normalized = normalizeKeywords(params.keywords!);
-      matchers = normalized.map((k) => ({
+      matchers = normalized.map((k, i) => ({
         kw: k.toLowerCase(),
+        kwWeight: KW_WEIGHTS[Math.min(i, KW_WEIGHTS.length - 1)],
         match: createWordMatcher(k),
       }));
     }
@@ -413,16 +433,17 @@ class CatalogSearchEngine {
     // Debug: log top 10 scored items with per-field breakdown
     if (hasTextSearch && scored.length > 0) {
       const top10 = [...scored].sort((a, b) => b.score - a.score).slice(0, 10);
-      const matcherNames = matchers.map(m => m.kw).join(", ");
+      const matcherNames = matchers.map(m => `${m.kw}(${m.kwWeight})`).join(", ");
       const lines = top10.map((s, i) => {
         const bd: string[] = [];
         for (const { key, weight, label, guard } of SCORE_FIELDS) {
           if (guard && !s.item[key]) continue;
           const text = s.item[key] as string;
           let mc = 0;
-          for (const { match } of matchers) { if (match(text)) mc++; }
+          let bestW = 0;
+          for (const { kwWeight, match } of matchers) { if (match(text)) { mc++; if (kwWeight > bestW) bestW = kwWeight; } }
           if (mc > 0) {
-            const pts = weight + Math.min(mc - 1, BREADTH_CAP) * weight * BREADTH_BONUS;
+            const pts = weight * bestW + Math.min(mc - 1, BREADTH_CAP) * weight * BREADTH_BONUS;
             bd.push(`${label}=${pts.toFixed(1)}`);
           }
         }
@@ -495,7 +516,12 @@ class CatalogSearchEngine {
       ...(hasTextSearch ? { score } : {}),
     }));
 
-    return { items, total, page, pageSize, facets };
+    const result: SearchResult = { items, total, page, pageSize, facets };
+    if (resultCache.size >= RESULT_CACHE_MAX) {
+      resultCache.delete(resultCache.keys().next().value!);
+    }
+    resultCache.set(cKey, { result, timestamp: Date.now() });
+    return result;
   }
 
   /**
@@ -506,18 +532,22 @@ class CatalogSearchEngine {
    */
   private scoreItem(
     item: SearchableItem,
-    matchers: { kw: string; match: (text: string) => boolean }[]
+    matchers: { kw: string; kwWeight: number; match: (text: string) => boolean }[]
   ): number {
     let score = 0;
     for (const { key, weight, guard } of SCORE_FIELDS) {
       if (guard && !item[key]) continue;
       const text = item[key] as string;
       let matchCount = 0;
-      for (const { match } of matchers) {
-        if (match(text)) matchCount++;
+      let bestKwWeight = 0;
+      for (const { kwWeight, match } of matchers) {
+        if (match(text)) {
+          matchCount++;
+          if (kwWeight > bestKwWeight) bestKwWeight = kwWeight;
+        }
       }
       if (matchCount > 0) {
-        score += weight;
+        score += weight * bestKwWeight;
         score += Math.min(matchCount - 1, BREADTH_CAP) * weight * BREADTH_BONUS;
       }
     }

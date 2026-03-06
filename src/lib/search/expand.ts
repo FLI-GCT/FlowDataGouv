@@ -65,9 +65,16 @@ REGLES:
 - suggestedCategories: uniquement si la requete mentionne clairement un theme (max 2)
 - suggestedGeoScopes: le niveau geo si un lieu est mentionne
   Ex: "Paris" → communal, "Bretagne" → regional, "Yonne" → departemental, "France" → national
-- suggestedGeoAreas: le NOM EXACT du lieu mentionne (region, departement, commune)
+- suggestedGeoAreas: le NOM EXACT OFFICIEL du lieu mentionne (region, departement, commune)
   Ex: "données sur l'Yonne" → ["Yonne"], "transport Dijon" → ["Dijon"], "Île-de-France" → ["Île-de-France"]
-  IMPORTANT: Utiliser le nom officiel (Île-de-France, pas ile de france)
+  IMPORTANT: Utiliser le nom officiel avec accents (Île-de-France, pas ile de france)
+  IMPORTANT: Reconnaitre les noms de lieux MEME SANS ACCENTS et TOUJOURS utiliser le nom OFFICIEL ACTUEL de la region:
+  Ex: "rhone alpes" ou "rhône alpes" → ["Auvergne-Rhône-Alpes"] (PAS "Rhône-Alpes" seul!)
+      "cote d'or" → ["Côte-d'Or"], "ile de france" → ["Île-de-France"]
+      "midi pyrenees" ou "languedoc" → ["Occitanie"]
+      "nord pas de calais" ou "picardie" → ["Hauts-de-France"]
+      "paca" ou "provence" → ["Provence-Alpes-Côte d'Azur"]
+      "alsace" ou "lorraine" → ["Grand Est"]
 
 Reponds UNIQUEMENT au format JSON (pas de texte avant ou apres):
 {"corrected": "requete corrigee", "keywords": ["kw1", "kw2", "kw3"], "suggestedCategories": [], "suggestedGeoScopes": [], "suggestedGeoAreas": []}`;
