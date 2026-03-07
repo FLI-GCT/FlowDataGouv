@@ -217,7 +217,7 @@ function CategoryRankings({ categoryStats }: { categoryStats: CategoryStats[] })
     <Card className="p-5 border-sky-200 dark:border-sky-800 bg-gradient-to-br from-sky-50/60 to-transparent dark:from-sky-950/20">
       <div className="flex items-center gap-2.5 mb-4">
         <BarChart3 className="h-5 w-5 text-sky-600" />
-        <h3 className="text-base font-bold">Themes les plus telecharges</h3>
+        <h3 className="text-base font-bold">Thèmes les plus téléchargés</h3>
       </div>
       <div className="space-y-3">
         {sortedByDownloads.map((cat) => {
