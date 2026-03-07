@@ -33,7 +33,7 @@ export function ResultsToolbar({ total, sort, onSortChange, hasQuery }: ResultsT
           <SelectItem value="downloads">Telechargements</SelectItem>
           <SelectItem value="views">Visites</SelectItem>
           <SelectItem value="lastModified">Date de mise à jour</SelectItem>
-          <SelectItem value="quality">Qualite</SelectItem>
+          <SelectItem value="quality">Qualité</SelectItem>
         </SelectContent>
       </Select>
     </div>
