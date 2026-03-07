@@ -89,7 +89,7 @@ function DateFilter({
     <div className="space-y-2">
       <div className="flex items-center gap-1.5">
         <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-        <h4 className="text-sm font-semibold text-foreground">Mise a jour</h4>
+        <h4 className="text-sm font-semibold text-foreground">Mise à jour</h4>
       </div>
       <div className="flex flex-wrap gap-1.5">
         {DATE_PRESETS.map((p) => (
