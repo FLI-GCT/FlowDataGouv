@@ -14,7 +14,7 @@ export const searchTools: ToolDef[] = [
       "Recherche intelligente dans 73 000+ datasets/APIs francaises enrichis par IA.",
       "Utilise Mistral pour corriger les fautes, generer des mots-cles, et suggerer des filtres.",
       "Scoring par pertinence avec word-boundary matching (evite les faux positifs).",
-      "Retourne des resultats avec facettes dynamiques (theme, geo, type, licence).",
+      "Retourne des résultats avec facettes dynamiques (theme, geo, type, licence).",
       "",
       "Parametres optionnels pour filtrage facetaire :",
       "- categories: slug de theme (ex: 'environnement', 'transport-mobilite')",
@@ -34,13 +34,13 @@ export const searchTools: ToolDef[] = [
       licenses: z.array(z.string()).optional().describe("Filtrer par licence"),
       sort: z.enum(["relevance", "views", "downloads", "lastModified", "quality"]).optional().describe("Tri"),
       page: z.number().optional().describe("Page (defaut: 1)"),
-      pageSize: z.number().optional().describe("Resultats par page (defaut: 20, max: 100)"),
+      pageSize: z.number().optional().describe("Résultats par page (defaut: 20, max: 100)"),
     }),
     handler: async (args) => {
       const result = await flowdata.smartSearch(args);
       const lines: string[] = [];
 
-      lines.push(`## ${result.total.toLocaleString("fr-FR")} resultats`);
+      lines.push(`## ${result.total.toLocaleString("fr-FR")} résultats`);
       if (result.expansion?.wasExpanded) {
         lines.push(`**Requete corrigee**: ${result.expansion.corrected}`);
         lines.push(`**Mots-cles**: ${result.expansion.keywords.join(", ")}`);
@@ -108,10 +108,10 @@ export const searchTools: ToolDef[] = [
   {
     name: "datagouv_analyze_results",
     description: [
-      "Analyse thematique des resultats de recherche par Mistral.",
+      "Analyse thematique des résultats de recherche par Mistral.",
       "Regroupe les datasets en 3-6 categories thematiques,",
       "fournit un resume et des observations cles.",
-      "Appeler apres datagouv_smart_search avec les resultats.",
+      "Appeler apres datagouv_smart_search avec les résultats.",
     ].join("\n"),
     schema: z.object({
       query: z.string().describe("La requete de recherche originale"),
