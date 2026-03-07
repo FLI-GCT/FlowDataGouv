@@ -397,7 +397,7 @@ function getKnownTools(): McpToolDef[] {
         properties: {
           query: { type: "string", description: "Mots-clés de recherche" },
           page: { type: "number", description: "Numero de page (defaut: 1)" },
-          page_size: { type: "number", description: "Resultats par page (defaut: 20, max: 100)" },
+          page_size: { type: "number", description: "Résultats par page (defaut: 20, max: 100)" },
         },
         required: ["query"],
       },
@@ -444,7 +444,7 @@ function getKnownTools(): McpToolDef[] {
           question: { type: "string", description: "Question en langage naturel" },
           resource_id: { type: "string", description: "ID de la ressource (UUID)" },
           page: { type: "number", description: "Numero de page (defaut: 1)" },
-          page_size: { type: "number", description: "Resultats par page (defaut: 20, max: 200)" },
+          page_size: { type: "number", description: "Résultats par page (defaut: 20, max: 200)" },
           filter_column: { type: "string", description: "Colonne de filtre" },
           filter_value: { type: "string", description: "Valeur de filtre" },
           filter_operator: { type: "string", description: "Operateur: exact, contains, less, greater" },
@@ -475,7 +475,7 @@ function getKnownTools(): McpToolDef[] {
         properties: {
           query: { type: "string", description: "Mots-clés" },
           page: { type: "number", description: "Numero de page" },
-          page_size: { type: "number", description: "Resultats par page" },
+          page_size: { type: "number", description: "Résultats par page" },
         },
         required: ["query"],
       },
