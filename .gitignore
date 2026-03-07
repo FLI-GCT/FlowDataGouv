@@ -53,5 +53,9 @@ next-env.d.ts
 mcp/node_modules
 mcp/dist
 
+# meilisearch (local dev binary + data)
+meilisearch.exe
+/meili-data/
+
 # claude code (local config, not for sharing)
 .claude/
