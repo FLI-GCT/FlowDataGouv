@@ -129,7 +129,7 @@ function QualityFilter({
     <div className="space-y-2">
       <div className="flex items-center gap-1.5">
         <Star className="h-3.5 w-3.5 text-muted-foreground" />
-        <h4 className="text-sm font-semibold text-foreground">Qualite</h4>
+        <h4 className="text-sm font-semibold text-foreground">Qualité</h4>
       </div>
       <div className="space-y-0.5">
         {QUALITY_LEVELS.map((level) => (
