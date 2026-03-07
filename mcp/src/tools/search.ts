@@ -25,7 +25,7 @@ export const searchTools: ToolDef[] = [
       "- licenses: 'lov2', 'odc-odbl', 'cc-by', etc.",
     ].join("\n"),
     schema: z.object({
-      query: z.string().optional().describe("Requete en langage naturel (ex: 'qualite air Dijon')"),
+      query: z.string().optional().describe("Requete en langage naturel (ex: 'qualité air Dijon')"),
       categories: z.array(z.string()).optional().describe("Filtrer par theme"),
       subcategories: z.array(z.string()).optional().describe("Filtrer par sous-theme"),
       geoScopes: z.array(z.string()).optional().describe("Filtrer par niveau geo"),
@@ -53,7 +53,7 @@ export const searchTools: ToolDef[] = [
         lines.push(`- **ID**: ${item.id} | **Type**: ${item.type} | ${badges}`);
         lines.push(`- **Org**: ${item.organization}`);
         if (item.summary) lines.push(`- ${item.summary}`);
-        lines.push(`- Vues: ${item.views} | DL: ${item.downloads} | Qualite: ${item.quality}/10`);
+        lines.push(`- Vues: ${item.views} | DL: ${item.downloads} | Qualité: ${item.quality}/10`);
         if (item.score) lines.push(`- Score pertinence: ${item.score.toFixed(1)}`);
         lines.push("");
       }
