@@ -545,7 +545,7 @@ export function FacetPanel({ facets, filters, onChange }: FacetPanelProps) {
     <div className="space-y-6">
       {/* Categories (Theme) */}
       <FacetGroup
-        title="Theme"
+        title="Thème"
         values={facets.categories}
         selected={filters.categories}
         onChange={(v) => onChange({ ...filters, categories: v, subcategories: [] })}
@@ -554,13 +554,13 @@ export function FacetPanel({ facets, filters, onChange }: FacetPanelProps) {
       {/* Subcategories (dynamic, shown when category selected) */}
       {facets.subcategories.length > 0 && (
         <FacetGroup
-          title="Sous-theme"
+          title="Sous-thème"
           values={facets.subcategories}
           selected={filters.subcategories}
           onChange={(v) => onChange({ ...filters, subcategories: v })}
           maxVisible={10}
           searchable
-          searchPlaceholder="Rechercher un sous-theme..."
+          searchPlaceholder="Rechercher un sous-thème..."
         />
       )}
 
