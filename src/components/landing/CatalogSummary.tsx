@@ -169,7 +169,7 @@ export function CatalogSummary({ initialData }: { initialData?: CatalogSummaryDa
         <StatCard label="APIs" value={data.stats.totalDataservices} icon={<Globe className="h-5 w-5 text-violet-500" />} color="bg-violet-50 dark:bg-violet-950/30" />
         <StatCard label="Categories" value={data.stats.totalCategories} icon={<Layers className="h-5 w-5 text-amber-500" />} color="bg-amber-50 dark:bg-amber-950/30" />
         <StatCard label="Visites totales" value={data.stats.totalViews || 0} icon={<Eye className="h-5 w-5 text-emerald-500" />} color="bg-emerald-50 dark:bg-emerald-950/30" format />
-        <StatCard label="Telechargements" value={data.stats.totalDownloads || 0} icon={<Download className="h-5 w-5 text-sky-500" />} color="bg-sky-50 dark:bg-sky-950/30" format />
+        <StatCard label="Téléchargements" value={data.stats.totalDownloads || 0} icon={<Download className="h-5 w-5 text-sky-500" />} color="bg-sky-50 dark:bg-sky-950/30" format />
         <StatCard label="Reutilisations" value={data.stats.totalReuses || 0} icon={<RefreshCw className="h-5 w-5 text-rose-500" />} color="bg-rose-50 dark:bg-rose-950/30" format />
       </div>
 
