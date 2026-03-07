@@ -80,7 +80,7 @@ export function SearchAnalysis({
       {/* Header */}
       <div className="flex items-center gap-2.5">
         <Brain className="h-5 w-5 text-violet-600" />
-        <h3 className="text-base font-bold">Analyse des resultats</h3>
+        <h3 className="text-base font-bold">Analyse des résultats</h3>
       </div>
 
       {/* Summary */}

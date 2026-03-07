@@ -169,7 +169,7 @@ export function CatalogSummary({ initialData }: { initialData?: CatalogSummaryDa
         <StatCard label="APIs" value={data.stats.totalDataservices} icon={<Globe className="h-5 w-5 text-violet-500" />} color="bg-violet-50 dark:bg-violet-950/30" />
         <StatCard label="Categories" value={data.stats.totalCategories} icon={<Layers className="h-5 w-5 text-amber-500" />} color="bg-amber-50 dark:bg-amber-950/30" />
         <StatCard label="Visites totales" value={data.stats.totalViews || 0} icon={<Eye className="h-5 w-5 text-emerald-500" />} color="bg-emerald-50 dark:bg-emerald-950/30" format />
-        <StatCard label="Telechargements" value={data.stats.totalDownloads || 0} icon={<Download className="h-5 w-5 text-sky-500" />} color="bg-sky-50 dark:bg-sky-950/30" format />
+        <StatCard label="Téléchargements" value={data.stats.totalDownloads || 0} icon={<Download className="h-5 w-5 text-sky-500" />} color="bg-sky-50 dark:bg-sky-950/30" format />
         <StatCard label="Reutilisations" value={data.stats.totalReuses || 0} icon={<RefreshCw className="h-5 w-5 text-rose-500" />} color="bg-rose-50 dark:bg-rose-950/30" format />
       </div>
 
@@ -216,7 +216,7 @@ export function CatalogSummary({ initialData }: { initialData?: CatalogSummaryDa
         <Card className="p-5 border-sky-200 dark:border-sky-800 bg-gradient-to-br from-sky-50/60 to-transparent dark:from-sky-950/20">
           <div className="flex items-center gap-2.5 mb-4">
             <BarChart3 className="h-5 w-5 text-sky-600" />
-            <h3 className="text-base font-bold">Themes les plus telecharges</h3>
+            <h3 className="text-base font-bold">Thèmes les plus téléchargés</h3>
           </div>
           <div className="space-y-3">
             {[...data.categoryStats]

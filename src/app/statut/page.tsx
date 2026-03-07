@@ -308,7 +308,7 @@ export default function McpExplorerPage() {
             {[
               {
                 title: "Rechercher des donnees",
-                description: "Trouvez des datasets par mots-cles, explorez les ressources, interrogez les CSV.",
+                description: "Trouvez des datasets par mots-clés, explorez les ressources, interrogez les CSV.",
                 tools: ["search_datasets", "list_dataset_resources", "query_resource_data"],
                 example: "Quels datasets sur l'education nationale ?",
               },
@@ -391,13 +391,13 @@ function getKnownTools(): McpToolDef[] {
   return [
     {
       name: "search_datasets",
-      description: "Rechercher des datasets sur data.gouv.fr par mots-cles. Retourne titre, description, organisation, tags et nombre de ressources.",
+      description: "Rechercher des datasets sur data.gouv.fr par mots-clés. Retourne titre, description, organisation, tags et nombre de ressources.",
       inputSchema: {
         type: "object",
         properties: {
-          query: { type: "string", description: "Mots-cles de recherche" },
+          query: { type: "string", description: "Mots-clés de recherche" },
           page: { type: "number", description: "Numero de page (defaut: 1)" },
-          page_size: { type: "number", description: "Resultats par page (defaut: 20, max: 100)" },
+          page_size: { type: "number", description: "Résultats par page (defaut: 20, max: 100)" },
         },
         required: ["query"],
       },
@@ -444,7 +444,7 @@ function getKnownTools(): McpToolDef[] {
           question: { type: "string", description: "Question en langage naturel" },
           resource_id: { type: "string", description: "ID de la ressource (UUID)" },
           page: { type: "number", description: "Numero de page (defaut: 1)" },
-          page_size: { type: "number", description: "Resultats par page (defaut: 20, max: 200)" },
+          page_size: { type: "number", description: "Résultats par page (defaut: 20, max: 200)" },
           filter_column: { type: "string", description: "Colonne de filtre" },
           filter_value: { type: "string", description: "Valeur de filtre" },
           filter_operator: { type: "string", description: "Operateur: exact, contains, less, greater" },
@@ -473,9 +473,9 @@ function getKnownTools(): McpToolDef[] {
       inputSchema: {
         type: "object",
         properties: {
-          query: { type: "string", description: "Mots-cles" },
+          query: { type: "string", description: "Mots-clés" },
           page: { type: "number", description: "Numero de page" },
-          page_size: { type: "number", description: "Resultats par page" },
+          page_size: { type: "number", description: "Résultats par page" },
         },
         required: ["query"],
       },

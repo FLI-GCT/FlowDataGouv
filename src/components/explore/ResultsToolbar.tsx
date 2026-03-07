@@ -30,10 +30,10 @@ export function ResultsToolbar({ total, sort, onSortChange, hasQuery }: ResultsT
         </SelectTrigger>
         <SelectContent>
           {hasQuery && <SelectItem value="relevance">Pertinence</SelectItem>}
-          <SelectItem value="downloads">Telechargements</SelectItem>
+          <SelectItem value="downloads">Téléchargements</SelectItem>
           <SelectItem value="views">Visites</SelectItem>
-          <SelectItem value="lastModified">Date de mise a jour</SelectItem>
-          <SelectItem value="quality">Qualite</SelectItem>
+          <SelectItem value="lastModified">Date de mise à jour</SelectItem>
+          <SelectItem value="quality">Qualité</SelectItem>
         </SelectContent>
       </Select>
     </div>

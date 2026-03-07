@@ -102,7 +102,7 @@ function StatsOverview({ catalog }: { catalog: Catalog }) {
         format
       />
       <StatCard
-        label="Telechargements"
+        label="Téléchargements"
         value={catalog.stats.totalDownloads || 0}
         icon={<Download className="h-5 w-5 text-sky-500" />}
         color="bg-sky-50 dark:bg-sky-950/30"
@@ -184,7 +184,7 @@ function TopDatasetsSection({
                 <Eye className="h-3.5 w-3.5 text-emerald-500" />
                 {formatBigNumber(ds.views)}
               </span>
-              <span className="flex items-center gap-1 tabular-nums" title="Telechargements">
+              <span className="flex items-center gap-1 tabular-nums" title="Téléchargements">
                 <Download className="h-3.5 w-3.5 text-sky-500" />
                 {formatBigNumber(ds.downloads)}
               </span>
@@ -217,7 +217,7 @@ function CategoryRankings({ categoryStats }: { categoryStats: CategoryStats[] })
     <Card className="p-5 border-sky-200 dark:border-sky-800 bg-gradient-to-br from-sky-50/60 to-transparent dark:from-sky-950/20">
       <div className="flex items-center gap-2.5 mb-4">
         <BarChart3 className="h-5 w-5 text-sky-600" />
-        <h3 className="text-base font-bold">Themes les plus telecharges</h3>
+        <h3 className="text-base font-bold">Thèmes les plus téléchargés</h3>
       </div>
       <div className="space-y-3">
         {sortedByDownloads.map((cat) => {
@@ -231,7 +231,7 @@ function CategoryRankings({ categoryStats }: { categoryStats: CategoryStats[] })
                   <span className="text-sm font-medium truncate">{cat.label}</span>
                 </div>
                 <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0 ml-2">
-                  <span className="tabular-nums" title="Telechargements">
+                  <span className="tabular-nums" title="Téléchargements">
                     {formatBigNumber(cat.totalDownloads)} DL
                   </span>
                   <span className="tabular-nums hidden sm:inline" title="Visites">

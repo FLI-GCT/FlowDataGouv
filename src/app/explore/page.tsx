@@ -156,9 +156,9 @@ const DATE_PILL_LABELS: Record<string, string> = {
 };
 
 const QUALITY_PILL_LABELS: Record<number, string> = {
-  2: "Qualite 2+",
-  3: "Qualite 3+",
-  4: "Qualite 4+",
+  2: "Qualité 2+",
+  3: "Qualité 3+",
+  4: "Qualité 4+",
 };
 
 function datePillLabel(dateAfter: string): string {
@@ -178,7 +178,7 @@ function activeFiltersList(filters: FacetFilters): ActiveFilter[] {
   for (const t of filters.types) list.push({ key: t, group: "types", label: TYPE_LABELS[t] || t });
   for (const l of filters.licenses) list.push({ key: l, group: "licenses", label: LICENSE_LABELS[l] || l });
   if (filters.dateAfter) list.push({ key: "dateAfter", group: "dateAfter", label: datePillLabel(filters.dateAfter) });
-  if (filters.qualityMin) list.push({ key: "qualityMin", group: "qualityMin", label: QUALITY_PILL_LABELS[filters.qualityMin] || `Qualite ${filters.qualityMin}+` });
+  if (filters.qualityMin) list.push({ key: "qualityMin", group: "qualityMin", label: QUALITY_PILL_LABELS[filters.qualityMin] || `Qualité ${filters.qualityMin}+` });
   return list;
 }
 
