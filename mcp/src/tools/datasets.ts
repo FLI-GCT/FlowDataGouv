@@ -66,6 +66,7 @@ export const datasetTools: ToolDef[] = [
     name: "datagouv_resource_data",
     description: [
       "Interroge les donnees tabulaires d'une ressource CSV/XLS via l'API Tabular.",
+      "⚠️ Appelez d'abord datagouv_resource_schema pour connaitre les noms exacts des colonnes.",
       "Supporte filtrage par colonne et tri. Operateurs : exact, contains, less, greater, strictly_less, strictly_greater.",
     ].join("\n"),
     schema: z.object({
@@ -158,6 +159,26 @@ export const datasetTools: ToolDef[] = [
         () => datagouv.getResourceInfo(args.resource_id as string),
       );
       return [{ type: "text" as const, text: formatResult("Ressource", data, source) }];
+    },
+  },
+
+  {
+    name: "datagouv_resource_schema",
+    description: [
+      "Recupere le schema (colonnes, types) d'une ressource tabulaire.",
+      "IMPORTANT: Appelez cet outil AVANT datagouv_resource_data pour connaitre",
+      "les noms exacts des colonnes disponibles et leurs types.",
+      "Retourne : nom de colonne, type (string/int/float/date...), format detecte.",
+    ].join("\n"),
+    schema: z.object({
+      resource_id: z.string().describe("ID de la ressource"),
+    }),
+    handler: async (args) => {
+      const { data, source } = await withFallback(
+        () => flowdata.proxyDatagouvCall("get_resource_schema", { resource_id: args.resource_id }),
+        () => datagouv.getResourceSchema(args.resource_id as string),
+      );
+      return [{ type: "text" as const, text: formatResult("Schema", data, source) }];
     },
   },
 ];

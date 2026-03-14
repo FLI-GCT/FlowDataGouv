@@ -4,6 +4,7 @@ import {
   getDatasetInfo,
   listDatasetResources,
   getResourceInfo,
+  getResourceSchema,
   queryResourceData,
   downloadAndParseResource,
   downloadResourceRaw,
@@ -27,6 +28,7 @@ const TOOL_MAP: Record<string, ToolHandler> = {
   get_dataset_info: (a) => getDatasetInfo(a.dataset_id),
   list_dataset_resources: (a) => listDatasetResources(a.dataset_id),
   get_resource_info: (a) => getResourceInfo(a.resource_id),
+  get_resource_schema: (a) => getResourceSchema(a.resource_id),
   query_resource_data: (a) =>
     queryResourceData(
       a.resource_id, a.page || 1, a.page_size || 20,
@@ -81,7 +83,7 @@ export async function POST(request: Request) {
     const cacheableTools = new Set([
       "get_latest_datasets", "get_latest_dataservices",
       "get_dataset_info", "list_dataset_resources",
-      "get_resource_info", "get_dataservice_info",
+      "get_resource_info", "get_resource_schema", "get_dataservice_info",
     ]);
     const headers: Record<string, string> = {};
     if (cacheableTools.has(body.tool)) {

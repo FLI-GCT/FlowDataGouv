@@ -4,6 +4,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { allTools } from "./tools/index.js";
+import { logToolCall } from "./lib/logger.js";
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -19,15 +20,12 @@ export function createMcpServer(): McpServer {
       async (args) => {
         const t0 = Date.now();
         try {
-          const argsStr = Object.entries(args as Record<string, unknown>)
-            .map(([k, v]) => `${k}=${typeof v === "string" ? `"${v}"` : v}`)
-            .join(", ");
           const content = await tool.handler(args as Record<string, unknown>);
-          console.error(`[mcp] ${tool.name}(${argsStr}) → ok (${Date.now() - t0}ms)`);
+          logToolCall(tool.name, args as Record<string, unknown>, "ok", Date.now() - t0);
           return { content };
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          console.error(`[mcp] ${tool.name} → ERROR: ${message} (${Date.now() - t0}ms)`);
+          logToolCall(tool.name, args as Record<string, unknown>, "error", Date.now() - t0, message);
           // Return error as informational text (NOT isError: true)
           // to avoid "Sibling tool call errored" cascade in Claude Desktop
           // when multiple tools are called in parallel.

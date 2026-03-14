@@ -9,6 +9,7 @@ import type {
   ParsedDataset,
   ParsedResourceList,
   ParsedResource,
+  ParsedResourceSchema,
   ParsedTabularData,
   ParsedMetrics,
   ParsedDataserviceList,
@@ -249,6 +250,36 @@ export async function getResourceInfo(resourceId: string): Promise<ParsedResourc
     url: resource.url || "",
     datasetId: datasetId ? String(datasetId) : undefined,
     tabularApiAvailable,
+  };
+}
+
+export async function getResourceSchema(resourceId: string): Promise<ParsedResourceSchema> {
+  const res = await fetch(`${TABULAR_API}resources/${resourceId}/profile/`, {
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) {
+    if (res.status === 404) throw new Error(`Ressource "${resourceId}" non disponible via la Tabular API.`);
+    throw new Error(`Erreur Tabular API profile: HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  const profile = data.profile || {};
+  const header: string[] = profile.header || [];
+  const columnsInfo: Record<string, { python_type?: string; format?: string }> = profile.columns || {};
+
+  const columns = header.map((name) => {
+    const info = columnsInfo[name] || {};
+    return {
+      name,
+      type: info.python_type || "unknown",
+      format: info.format || "string",
+    };
+  });
+
+  return {
+    type: "resource_schema",
+    resourceId,
+    totalColumns: columns.length,
+    columns,
   };
 }
 

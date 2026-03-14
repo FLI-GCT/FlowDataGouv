@@ -10,6 +10,7 @@
  * Env :
  *   MCP_PORT=8000 (défaut)
  *   FLOWDATA_URL=http://localhost:3000
+ *   MCP_LOG_FILE=/var/log/flowdatagouv/mcp-tools.ndjson
  */
 
 import { randomUUID } from "node:crypto";
@@ -18,6 +19,7 @@ import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createMcpServer } from "./server.js";
+import { closeLog, aggregateStats } from "./lib/logger.js";
 
 const PORT = parseInt(process.env.MCP_PORT || "8000", 10);
 
@@ -100,12 +102,25 @@ app.get("/health", (_req: Request, res: Response) => {
   res.json({ status: "ok", timestamp: new Date().toISOString(), version: "2.0.0" });
 });
 
+// GET /stats — MCP tool usage statistics
+app.get("/stats", async (req: Request, res: Response) => {
+  try {
+    const days = Math.min(parseInt(String(req.query.days) || "7", 10) || 7, 90);
+    const stats = await aggregateStats(days);
+    res.json(stats);
+  } catch (error) {
+    console.error("[mcp-http] Stats error:", error);
+    res.status(500).json({ error: "Failed to aggregate stats" });
+  }
+});
+
 app.listen(PORT, () => {
   console.error(`[datagouv-mcp] HTTP server listening on port ${PORT}`);
 });
 
 // Graceful shutdown
 process.on("SIGINT", async () => {
+  closeLog();
   for (const sid of Object.keys(transports)) {
     try {
       await transports[sid].close();

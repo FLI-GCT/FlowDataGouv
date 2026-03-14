@@ -50,6 +50,13 @@ export interface ParsedResource {
   tabularApiAvailable?: boolean;
 }
 
+export interface ParsedResourceSchema {
+  type: "resource_schema";
+  resourceId: string;
+  totalColumns: number;
+  columns: { name: string; type: string; format: string }[];
+}
+
 export interface ParsedTabularData {
   type: "tabular_data";
   resourceTitle: string;

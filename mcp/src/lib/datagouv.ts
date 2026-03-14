@@ -59,6 +59,20 @@ export async function queryResourceData(
   return get<Record<string, unknown>>(url, 30_000);
 }
 
+export async function getResourceSchema(resourceId: string) {
+  const url = `${TABULAR()}/resources/${resourceId}/profile/`;
+  const data = await get<{ profile?: { header?: string[]; columns?: Record<string, { python_type?: string; format?: string }> } }>(url);
+  const profile = data.profile || {};
+  const header = profile.header || [];
+  const columnsInfo = profile.columns || {};
+  const columns = header.map((name) => ({
+    name,
+    type: columnsInfo[name]?.python_type || "unknown",
+    format: columnsInfo[name]?.format || "string",
+  }));
+  return { type: "resource_schema", resourceId, totalColumns: columns.length, columns };
+}
+
 // ── APIs / Dataservices ──────────────────────────────────────────
 
 export async function searchDataservices(query: string, page = 1, pageSize = 20) {

@@ -29,6 +29,7 @@ module.exports = {
         NODE_ENV: "production",
         MCP_PORT: 8000,
         FLOWDATA_URL: "http://localhost:3000",
+        MCP_LOG_FILE: "/var/log/flowdatagouv/mcp-tools.ndjson",
       },
       kill_timeout: 5000,
       error_file: "/var/log/flowdatagouv/mcp-error.log",
