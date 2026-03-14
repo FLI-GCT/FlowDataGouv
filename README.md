@@ -37,7 +37,7 @@ Projet personnel de [Guillaume CLEMENT](https://www.linkedin.com/in/guillaume-cl
 - **Cache telechargement LRU** : proxy serveur avec cache disque (streaming, eviction par derniere utilisation, `DOWNLOAD_CACHE_MAX_GB` configurable)
 - **OpenAPI Viewer Swagger-like** : navigation des specs API avec "Try It" integre
 - **RGPD** : Mistral AI (LLM francais), aucune donnee envoyee vers les US
-- **Serveur MCP** : 18 outils pour Claude Cowork / Claude Desktop / Claude Code
+- **Serveur MCP** : 19 outils pour Claude Cowork / Claude Desktop / Claude Code
 - **Plugin Cowork** : 7 skills + 8 commandes slash
 
 ## Stack technique
@@ -351,20 +351,26 @@ Le systeme de previsualisation route chaque ressource vers le viewer adapte selo
 
 ### Serveur MCP (mcp/)
 
-18 outils MCP en 4 categories, TypeScript + `@modelcontextprotocol/sdk`, transport stdio + Streamable HTTP :
+19 outils MCP en 4 categories, TypeScript + `@modelcontextprotocol/sdk`, transport stdio + Streamable HTTP :
 
 | Categorie | Outils |
 |-----------|--------|
 | Recherche intelligente (3) | `smart_search`, `expand_query`, `analyze_results` |
-| Datasets & Ressources (6) | `dataset_info`, `dataset_resources`, `resource_data` (filtrage/tri par colonne), `download_resource`, `resource_info`, `dataset_metrics` |
+| Datasets & Ressources (7) | `dataset_info`, `dataset_resources`, `resource_schema` (colonnes + types), `resource_data` (filtrage/tri par colonne), `download_resource`, `resource_info`, `dataset_metrics` |
 | APIs & Dataservices (4) | `api_info`, `api_spec`, `api_call`, `search_apis` |
 | Catalogue & Decouverte (5) | `catalog_summary`, `categories`, `latest_datasets`, `latest_apis`, `health` |
+
+**Logging structure** : chaque appel MCP est logge en NDJSON dans `/var/log/flowdatagouv/mcp-tools.ndjson` (timestamp, outil, args, statut, duree). Endpoint `GET /stats?days=7` pour agreger les stats d'utilisation sans SSH.
 
 ```bash
 cd mcp
 npm install && npm run build
 node dist/index.js     # stdio
 node dist/http.js      # Streamable HTTP (port 8000)
+
+# Endpoints HTTP supplementaires :
+# GET /health  — health check
+# GET /stats?days=7  — stats d'utilisation agrégées depuis les logs NDJSON
 ```
 
 ### Plugin Cowork
@@ -447,6 +453,7 @@ Ouvrir [http://localhost:3000](http://localhost:3000).
 | `RATE_LIMIT_MAX` | Non | Requetes max par jour par IP (routes Mistral) | `500` |
 | `DOWNLOAD_CACHE_MAX_GB` | Non | Taille max du cache telechargement (Go) | `10` |
 | `PREVIEW_MAX_MB` | Non | Taille max fichier pour previsualisation (Mo) | `50` |
+| `MCP_LOG_FILE` | Non | Chemin du fichier NDJSON pour logs MCP (serveur MCP) | _(desactive)_ |
 
 ## Structure du projet
 
@@ -489,7 +496,7 @@ src/
 │   ├── search/expand.ts                 # Expansion Mistral (correction + mots-cles + filtres + geo sans accents)
 │   ├── search/rerank.ts                 # Re-ranking Mistral (top 20, cache 1h, timeout 1.5s)
 │   ├── search/analyze.ts               # Analyse agentique (disponible via API)
-│   ├── datagouv/api.ts                  # Client REST data.gouv.fr (preview lit depuis cache)
+│   ├── datagouv/api.ts                  # Client REST data.gouv.fr (preview lit depuis cache, resource schema)
 │   ├── rate-limit.ts                    # Rate limiter in-memory (IP anonymisee, cache-aware)
 │   ├── constants.ts                     # RATE_LIMIT, MISTRAL_MODEL, SITE_NAME
 │   └── utils.ts
@@ -575,7 +582,7 @@ proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 
 Voir [docs/plan-mcp-game-changer.md](docs/plan-mcp-game-changer.md) pour les evolutions prevues :
 
-1. **Profiling automatique des ressources** : types de colonnes, min/max, nulls, cardinalite
+1. ~~**Profiling automatique des ressources**~~ : ✅ `resource_schema` expose colonnes, types et formats via la Tabular API `/profile/`. Reste a faire : min/max, nulls, cardinalite, valeurs exemples
 2. **Detection de colonnes pivot** : INSEE, SIRET, code postal, GPS
 3. **Cross-dataset** : suggestions de jointures entre datasets partageant les memes identifiants
 4. **Tracker de ressources cassees** : signaler les liens morts, suggerer des alternatives

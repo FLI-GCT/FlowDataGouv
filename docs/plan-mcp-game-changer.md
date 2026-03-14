@@ -1,14 +1,23 @@
 # Plan MCP Game Changer - Améliorations pour agents IA
 
 ## 1. Profiling automatique des ressources
-Quand une ressource CSV est accédée pour la première fois, calculer et cacher un profil :
-- Types de colonnes (numérique, texte, date, booléen)
+
+### ✅ Phase 1 réalisée (2026-03-14) : `datagouv_resource_schema`
+Expose les colonnes, types et formats d'une ressource tabulaire via l'endpoint `/profile/` de la Tabular API. Les LLMs appellent `resource_schema` AVANT `resource_data` pour connaître les noms exacts de colonnes et éviter le brute-force (cascades de 400).
+
+Retourne pour chaque colonne :
+- `name` : nom exact de la colonne
+- `type` : type Python détecté (string, int, float...)
+- `format` : format sémantique détecté (siren, region, departement, year, pays...)
+
+### Phase 2 à faire : profiling enrichi
+Aller au-delà du schema basique :
 - Min/max pour les numériques, plages pour les dates
 - % de valeurs nulles par colonne
 - Cardinalité (nombre de valeurs distinctes)
 - Exemples de valeurs (top 5)
 
-**Outil MCP** : `datagouv_profile_resource`
+**Outil MCP potentiel** : `datagouv_profile_resource` (au-dessus de `resource_schema`)
 **Cache** : `data/profiles/{resource_id}.json` avec TTL 7 jours
 
 ## 2. Détection de colonnes pivot (INSEE, SIRET, code postal...)
@@ -64,7 +73,7 @@ Orchestration interne pour éviter les allers-retours :
 ---
 
 ## Priorités suggérées
-1. **Profiling + colonnes pivot** (1+2) - fondation pour tout le reste
+1. **Profiling + colonnes pivot** (1+2) - fondation pour tout le reste — schema basique ✅ (resource_schema), profiling enrichi à faire
 2. **Ressources cassées** (4) - quick win, plan déjà écrit
 3. **Résumé statistique** (5) - variante légère du profiling
 4. **Cross-dataset** (3) - le vrai game changer, dépend de 1+2
