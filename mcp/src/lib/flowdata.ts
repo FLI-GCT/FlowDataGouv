@@ -107,10 +107,19 @@ export interface SearchAnalysis {
 
 export interface CatalogSummary {
   lastSync: string;
-  stats: { total: number; enriched: number; failed: number };
-  categories: { slug: string; label: string; count: number; color: string }[];
+  stats: {
+    totalDatasets: number;
+    totalDataservices: number;
+    totalCategories: number;
+    totalViews: number;
+    totalDownloads: number;
+    totalReuses: number;
+    enrichedCount: number;
+    enrichmentProgress: number;
+  };
+  categories: { slug: string; label: string; totalItems: number; color: string; description: string }[];
   topDatasets: { id: string; title: string; organization: string; views: number; downloads: number }[];
-  geoRegions: { name: string; count: number }[];
+  geoRegions: { slug: string; label: string; scope: string; count: number }[];
 }
 
 // ── API calls ────────────────────────────────────────────────────

@@ -18,25 +18,28 @@ export const catalogTools: ToolDef[] = [
     schema: z.object({}),
     handler: async () => {
       const summary = await flowdata.getCatalogSummary();
+      const s = summary.stats;
+      const fmt = (n: number) => (n ?? 0).toLocaleString("fr-FR");
       const lines = [
         "## Catalogue data.gouv.fr enrichi",
         "",
         `**Derniere sync**: ${summary.lastSync}`,
-        `**Total**: ${summary.stats.total.toLocaleString("fr-FR")} items`,
-        `**Enrichis**: ${summary.stats.enriched.toLocaleString("fr-FR")}`,
+        `**Datasets**: ${fmt(s.totalDatasets)} | **APIs**: ${fmt(s.totalDataservices)}`,
+        `**Enrichis**: ${fmt(s.enrichedCount)} (${s.enrichmentProgress ?? 0}%)`,
+        `**Vues totales**: ${fmt(s.totalViews)} | **Telechargements**: ${fmt(s.totalDownloads)} | **Reutilisations**: ${fmt(s.totalReuses)}`,
         "",
-        "### Categories (18)",
+        `### Categories (${s.totalCategories ?? summary.categories.length})`,
         ...summary.categories
-          .sort((a, b) => b.count - a.count)
-          .map((c) => `- **${c.label}** (${c.slug}): ${c.count.toLocaleString("fr-FR")} items`),
+          .sort((a, b) => b.totalItems - a.totalItems)
+          .map((c) => `- **${c.label}** (${c.slug}): ${fmt(c.totalItems)} items`),
         "",
         "### Top datasets",
-        ...summary.topDatasets.slice(0, 10).map(
-          (d, i) => `${i + 1}. **${d.title}** — ${d.organization} (${d.views} vues, ${d.downloads} DL)`
+        ...(summary.topDatasets ?? []).slice(0, 10).map(
+          (d, i) => `${i + 1}. **${d.title}** — ${d.organization} (${fmt(d.views)} vues, ${fmt(d.downloads)} DL)`
         ),
         "",
         "### Regions geographiques",
-        ...summary.geoRegions.slice(0, 15).map((g) => `- ${g.name}: ${g.count.toLocaleString("fr-FR")} items`),
+        ...(summary.geoRegions ?? []).slice(0, 15).map((g) => `- ${g.label}: ${fmt(g.count)} items`),
       ];
       return [{ type: "text" as const, text: lines.join("\n") }];
     },
@@ -52,9 +55,10 @@ export const catalogTools: ToolDef[] = [
     schema: z.object({}),
     handler: async () => {
       const summary = await flowdata.getCatalogSummary();
+      const fmt = (n: number) => (n ?? 0).toLocaleString("fr-FR");
       const lines = summary.categories
-        .sort((a, b) => b.count - a.count)
-        .map((c) => `- **${c.label}** \`${c.slug}\` — ${c.count.toLocaleString("fr-FR")} items`);
+        .sort((a, b) => b.totalItems - a.totalItems)
+        .map((c) => `- **${c.label}** \`${c.slug}\` — ${fmt(c.totalItems)} items — ${c.description ?? ""}`);
       return [{ type: "text" as const, text: "## Categories disponibles\n\n" + lines.join("\n") }];
     },
   },
