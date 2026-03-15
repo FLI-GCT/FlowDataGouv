@@ -47,18 +47,38 @@ export const datasetTools: ToolDef[] = [
   {
     name: "datagouv_dataset_resources",
     description: [
-      "Liste les ressources (fichiers) d'un dataset.",
-      "Retourne : nom, format (CSV, JSON, XLS...), taille, URL, API tabulaire disponible.",
+      "Liste les ressources (fichiers) d'un dataset avec verification de l'API tabulaire.",
+      "Retourne : nom, format (CSV, JSON, XLS...), taille, URL.",
+      "Indique quelles ressources sont exploitables en ligne (API tabulaire disponible).",
     ].join("\n"),
     schema: z.object({
       dataset_id: z.string().describe("ID ou slug du dataset"),
     }),
     handler: async (args) => {
-      const { data, source } = await withFallback(
-        () => flowdata.proxyDatagouvCall("list_dataset_resources", { dataset_id: args.dataset_id }),
-        () => datagouv.listDatasetResources(args.dataset_id as string),
+      const resources = await datagouv.listDatasetResources(args.dataset_id as string);
+      // Probe Tabular API for CSV/XLS/JSON resources
+      const TABULAR_FORMATS = new Set(["csv", "xls", "xlsx", "json", "tsv", "ods"]);
+      type ResourceWithTabular = Record<string, unknown> & { tabularAvailable: boolean };
+      const probed: ResourceWithTabular[] = await Promise.all(
+        resources.map(async (r: Record<string, unknown>) => {
+          const fmt = String(r.format || "").toLowerCase();
+          if (!TABULAR_FORMATS.has(fmt)) return { ...r, tabularAvailable: false };
+          const available = await datagouv.isTabularAvailable(String(r.id));
+          return { ...r, tabularAvailable: available };
+        }),
       );
-      return [{ type: "text" as const, text: formatResult("Ressources", data, source) }];
+      const explorable = probed.filter((r) => r.tabularAvailable);
+      const lines = [
+        `## Ressources (${probed.length} fichiers, ${explorable.length} exploitables en ligne)\n`,
+      ];
+      for (const r of probed) {
+        const mark = r.tabularAvailable ? "✅" : "—";
+        lines.push(`- ${mark} **${r.title}** (${r.format}, ${r.filesize || "?"}) — \`${r.id}\``);
+      }
+      if (explorable.length > 0) {
+        lines.push(`\n**Ressources exploitables** : utilisez datagouv_resource_schema puis datagouv_resource_data avec les IDs ci-dessus.`);
+      }
+      return [{ type: "text" as const, text: lines.join("\n") }];
     },
   },
 
@@ -67,7 +87,8 @@ export const datasetTools: ToolDef[] = [
     description: [
       "Interroge les donnees tabulaires d'une ressource CSV/XLS via l'API Tabular.",
       "⚠️ Appelez d'abord datagouv_resource_schema pour connaitre les noms exacts des colonnes.",
-      "Supporte filtrage par colonne et tri. Operateurs : exact, contains, less, greater, strictly_less, strictly_greater.",
+      "Supporte filtrage par colonne et tri. Operateurs : exact, contains, less, greater.",
+      "Si la Tabular API n'est pas disponible, tente un telechargement direct (fichiers < 50 Mo).",
     ].join("\n"),
     schema: z.object({
       resource_id: z.string().describe("ID de la ressource"),
@@ -100,11 +121,26 @@ export const datasetTools: ToolDef[] = [
       const sort = args.sort_column
         ? { column: args.sort_column as string, direction: args.sort_direction as string }
         : undefined;
-      const { data, source } = await withFallback(
-        () => flowdata.proxyDatagouvCall("query_resource_data", proxyArgs),
-        () => datagouv.queryResourceData(args.resource_id as string, (args.page as number) || 1, (args.page_size as number) || 20, filters, sort),
-      );
-      return [{ type: "text" as const, text: formatResult("Donnees", data, source) }];
+      // Try Tabular API first, then download fallback
+      try {
+        const { data, source } = await withFallback(
+          () => flowdata.proxyDatagouvCall("query_resource_data", proxyArgs),
+          () => datagouv.queryResourceData(args.resource_id as string, (args.page as number) || 1, (args.page_size as number) || 20, filters, sort),
+        );
+        return [{ type: "text" as const, text: formatResult("Donnees", data, source) }];
+      } catch {
+        // Fallback: try download + parse via proxy (for non-tabular resources < 50 MB)
+        try {
+          const result = await flowdata.proxyDatagouvCall("download_and_parse_resource", {
+            resource_id: args.resource_id,
+            max_rows: (args.page_size as number) || 20,
+          });
+          return [{ type: "text" as const, text: formatResult("Donnees (via telechargement)", result) }];
+        } catch (dlErr) {
+          const msg = dlErr instanceof Error ? dlErr.message : "Erreur inconnue";
+          return [{ type: "text" as const, text: `Donnees non disponibles via la Tabular API ni par telechargement: ${msg}` }];
+        }
+      }
     },
   },
 

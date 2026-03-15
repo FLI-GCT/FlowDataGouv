@@ -4,11 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { McpStatusBadge } from "@/components/shared/McpStatusBadge";
-import { Bot, Search, Server, Menu, X } from "lucide-react";
+import { Bot, Search, Sparkles, Server, Menu, X } from "lucide-react";
 import { useState } from "react";
 
 const NAV_ITEMS = [
   { href: "/explore", label: "Explorer", icon: Search },
+  { href: "/martine", label: "Martine", icon: Sparkles },
   { href: "/statut", label: "Statut", icon: Server },
 ];
 

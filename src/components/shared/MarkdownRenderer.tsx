@@ -1,13 +1,30 @@
 "use client";
 
+import { isValidElement, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 interface MarkdownRendererProps {
   content: string;
+  onAction?: (text: string) => void;
 }
 
-export function MarkdownRenderer({ content }: MarkdownRendererProps) {
+/** Extract plain text from React children (recursively) */
+function textContent(node: ReactNode): string {
+  if (typeof node === "string") return node;
+  if (typeof node === "number") return String(node);
+  if (!isValidElement(node)) {
+    if (Array.isArray(node)) return node.map(textContent).join("");
+    return "";
+  }
+  const props = node.props as { children?: ReactNode };
+  return textContent(props.children);
+}
+
+/** Match numbered dataset titles like "1. Titre du dataset" */
+const NUMBERED_TITLE_RE = /^(\d+)\.\s+/;
+
+export function MarkdownRenderer({ content, onAction }: MarkdownRendererProps) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -31,7 +48,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
             href={href}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-blue-600 underline hover:text-blue-800"
+            className="text-primary underline-offset-2 hover:underline"
           >
             {children}
           </a>
@@ -56,13 +73,40 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
             </pre>
           );
         },
+        // Make numbered bold titles clickable when onAction is provided
+        strong: ({ children }) => {
+          const text = textContent(children);
+          const match = onAction && NUMBERED_TITLE_RE.exec(text);
+          if (match) {
+            const num = match[1];
+            return (
+              <button
+                type="button"
+                onClick={() => onAction(num)}
+                className="inline text-left font-bold text-primary hover:underline cursor-pointer"
+                title={`Explorer le dataset n°${num}`}
+              >
+                {children}
+              </button>
+            );
+          }
+          return <strong>{children}</strong>;
+        },
+        // Style paragraphs that follow numbered titles as cards
+        p: ({ children }) => {
+          const text = textContent(children);
+          // Detect "Organisation :" metadata lines → compact styling
+          if (/^Organisation\s*:/.test(text)) {
+            return <p className="my-0.5 text-xs text-muted-foreground">{children}</p>;
+          }
+          return <p className="my-1">{children}</p>;
+        },
         ul: ({ children }) => (
           <ul className="my-1 ml-4 list-disc space-y-0.5">{children}</ul>
         ),
         ol: ({ children }) => (
           <ol className="my-1 ml-4 list-decimal space-y-0.5">{children}</ol>
         ),
-        p: ({ children }) => <p className="my-1">{children}</p>,
         h1: ({ children }) => (
           <h1 className="my-2 text-xl font-bold">{children}</h1>
         ),

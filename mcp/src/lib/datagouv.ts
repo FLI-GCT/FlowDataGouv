@@ -59,6 +59,16 @@ export async function queryResourceData(
   return get<Record<string, unknown>>(url, 30_000);
 }
 
+/** Quick check if a resource is available on the Tabular API (HEAD-like probe) */
+export async function isTabularAvailable(resourceId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${TABULAR()}/resources/${resourceId}/profile/`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    return res.status === 200;
+  } catch { return false; }
+}
+
 export async function getResourceSchema(resourceId: string) {
   const url = `${TABULAR()}/resources/${resourceId}/profile/`;
   const data = await get<{ profile?: { header?: string[]; columns?: Record<string, { python_type?: string; format?: string }> } }>(url);

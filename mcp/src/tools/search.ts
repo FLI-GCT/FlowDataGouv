@@ -5,6 +5,7 @@
 
 import { z } from "zod";
 import * as flowdata from "../lib/flowdata.js";
+import * as datagouv from "../lib/datagouv.js";
 import type { ToolDef } from "./index.js";
 
 export const searchTools: ToolDef[] = [
@@ -38,6 +39,37 @@ export const searchTools: ToolDef[] = [
     }),
     handler: async (args) => {
       const result = await flowdata.smartSearch(args);
+
+      // Probe Tabular API for each result in parallel
+      const tabularInfo = await Promise.all(
+        result.items.map(async (item) => {
+          try {
+            const resources = await Promise.race([
+              datagouv.listDatasetResources(item.id),
+              new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), 4000)),
+            ]);
+            const csvLike = resources.filter((r: Record<string, unknown>) =>
+              ["csv", "xls", "xlsx", "json", "tsv", "ods"].includes(String(r.format || "").toLowerCase()),
+            );
+            const checks = await Promise.all(
+              csvLike.slice(0, 5).map(async (r: Record<string, unknown>) => {
+                try {
+                  const ok = await datagouv.isTabularAvailable(String(r.id));
+                  return ok ? r : null;
+                } catch { return null; }
+              }),
+            );
+            const tabular = checks.filter(Boolean) as Record<string, unknown>[];
+            return {
+              id: item.id,
+              count: tabular.length,
+              resources: tabular.slice(0, 3).map((r) => `${r.format}: ${String(r.title || "").slice(0, 40)} (${r.id})`),
+            };
+          } catch { return { id: item.id, count: 0, resources: [] }; }
+        }),
+      );
+      const tabMap = new Map(tabularInfo.map((t) => [t.id, t]));
+
       const lines: string[] = [];
 
       lines.push(`## ${result.total.toLocaleString("fr-FR")} resultats`);
@@ -45,16 +77,23 @@ export const searchTools: ToolDef[] = [
         lines.push(`**Requete corrigee**: ${result.expansion.corrected}`);
         lines.push(`**Mots-cles**: ${result.expansion.keywords.join(", ")}`);
       }
+      const explorableCount = tabularInfo.filter((t) => t.count > 0).length;
+      lines.push(`**Exploitables en ligne**: ${explorableCount}/${result.items.length}`);
       lines.push("");
 
       for (const item of result.items) {
         const badges = [item.categoryLabel, item.geoScope, item.geoArea].filter(Boolean).join(" | ");
-        lines.push(`### ${item.title}`);
+        const tab = tabMap.get(item.id);
+        const tabLabel = tab && tab.count > 0 ? ` ✅ ${tab.count} ressource(s) exploitable(s)` : " ⛔ non exploitable en ligne";
+        lines.push(`### ${item.title}${tabLabel}`);
         lines.push(`- **ID**: ${item.id} | **Type**: ${item.type} | ${badges}`);
         lines.push(`- **Org**: ${item.organization}`);
         if (item.summary) lines.push(`- ${item.summary}`);
         lines.push(`- Vues: ${item.views} | DL: ${item.downloads} | Qualite: ${item.quality}/10`);
         if (item.score) lines.push(`- Score pertinence: ${item.score.toFixed(1)}`);
+        if (tab && tab.resources.length > 0) {
+          lines.push(`- **Ressources tabulaires**: ${tab.resources.join(", ")}`);
+        }
         lines.push("");
       }
 

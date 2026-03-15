@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { AppFooter } from "@/components/layout/AppFooter";
+import { MartineWidget } from "@/components/martine/MartineWidget";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -50,6 +51,7 @@ export default function RootLayout({
         <AppHeader />
         <div className="flex-1 flex flex-col">{children}</div>
         <AppFooter />
+        <MartineWidget />
       </body>
     </html>
   );
