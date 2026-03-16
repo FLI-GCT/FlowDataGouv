@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import {
   Send, Sparkles, Trash2, WifiOff, Loader2, ExternalLink,
   ChevronRight, ChevronDown, Database, Search, BarChart3, Table2,
-  CheckCircle2, Clock, Filter, Download, Grid3X3, TrendingUp,
+  CheckCircle2, Clock, Filter, Download, Grid3X3, TrendingUp, Eye,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MarkdownRenderer } from "@/components/shared/MarkdownRenderer";
@@ -143,19 +143,7 @@ export function MartineChat({ sessionId: initId, initialQuery }: MartineChatProp
             {messages.map((m) => <Bubble key={m.id} msg={m} onAction={send} />)}
             {/* Live */}
             {loading && (liveTraces.length > 0 || streaming || thinking) && (
-              <div className="flex gap-2.5">
-                <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10"><Sparkles className="h-3.5 w-3.5 text-primary" /></div>
-                <div className="max-w-[85%] space-y-2">
-                  {liveTraces.length > 0 && <Traces traces={liveTraces} />}
-                  {thinking && <Thinking step={thinking} />}
-                  {liveToolResults.map((tr, i) => <ToolResultView key={i} tr={tr} onAction={send} />)}
-                  {streaming && (
-                    <div className="rounded-2xl rounded-tl-sm bg-muted/60 px-4 py-3 text-sm">
-                      <MarkdownRenderer content={streaming} /><span className="mt-1 inline-block h-4 w-0.5 animate-pulse bg-primary/60" />
-                    </div>
-                  )}
-                </div>
-              </div>
+              <LiveBubble traces={liveTraces} toolResults={liveToolResults} thinking={thinking} streaming={streaming} onAction={send} />
             )}
             {loading && !liveTraces.length && !streaming && !thinking && <Dots />}
             <div ref={endRef} />
@@ -179,13 +167,80 @@ export function MartineChat({ sessionId: initId, initialQuery }: MartineChatProp
   );
 }
 
+// ── Bubble (2-column on desktop for assistant) ──────────────────
+
+function LiveBubble({ traces, toolResults, thinking, streaming, onAction }: {
+  traces: ToolTrace[]; toolResults: ToolResult[]; thinking: string | null; streaming: string; onAction: (t: string) => void;
+}) {
+  const hasToolContent = toolResults.length > 0;
+  return (
+    <div className="flex gap-2.5">
+      <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10"><Sparkles className="h-3.5 w-3.5 text-primary" /></div>
+      <div className="min-w-0 flex-1 space-y-2">
+        {traces.length > 0 && <Traces traces={traces} />}
+        {thinking && <Thinking step={thinking} />}
+        {/* 2-column layout on lg when we have both tool results and text */}
+        {(hasToolContent || streaming) && (
+          <div className={hasToolContent && streaming ? "grid gap-3 lg:grid-cols-[1fr_1fr]" : ""}>
+            {hasToolContent && (
+              <div className="space-y-2 min-w-0">
+                {toolResults.map((tr, i) => <ToolResultView key={i} tr={tr} onAction={onAction} />)}
+              </div>
+            )}
+            {streaming && (
+              <div className="rounded-2xl rounded-tl-sm bg-muted/60 px-4 py-3 text-sm min-w-0">
+                <MarkdownRenderer content={streaming} /><span className="mt-1 inline-block h-4 w-0.5 animate-pulse bg-primary/60" />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Bubble({ msg, onAction }: { msg: ChatMessage; onAction: (t: string) => void }) {
+  if (msg.role === "user") return (
+    <div className="flex justify-end">
+      <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-primary px-4 py-3 text-sm text-primary-foreground whitespace-pre-wrap break-words">{msg.content}</div>
+    </div>
+  );
+
+  const hasTools = !!msg.toolResults?.length;
+  const hasText = !!msg.content;
+
+  return (
+    <div className="flex gap-2.5">
+      <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10"><Sparkles className="h-3.5 w-3.5 text-primary" /></div>
+      <div className="min-w-0 flex-1 space-y-2">
+        {msg.toolTraces?.length ? <Traces traces={msg.toolTraces} /> : null}
+        {/* 2-column on lg: tools left, text right */}
+        {(hasTools || hasText) && (
+          <div className={hasTools && hasText ? "grid gap-3 lg:grid-cols-[1fr_1fr]" : ""}>
+            {hasTools && (
+              <div className="space-y-2 min-w-0">
+                {msg.toolResults!.map((tr, i) => <ToolResultView key={i} tr={tr} onAction={onAction} />)}
+              </div>
+            )}
+            {hasText && (
+              <div className="rounded-2xl rounded-tl-sm bg-muted/60 px-4 py-3 text-sm min-w-0">
+                <MarkdownRenderer content={msg.content} onAction={onAction} />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Tool Result Dispatch ────────────────────────────────────────
 
 function ToolResultView({ tr, onAction }: { tr: ToolResult; onAction: (t: string) => void }) {
   const r = tr.result;
   switch (tr.tool) {
     case "search_datasets": return r.results ? <DatasetCards datasets={r.results as DatasetCard[]} onAction={onAction} /> : null;
-    case "dataset_details": return r.resources ? <ResourceCards resources={r.resources as ResourceCard[]} onAction={onAction} /> : null;
+    case "dataset_details": return r.resources ? <ResourceCards resources={r.resources as ResourceCard[]} title={r.title as string} onAction={onAction} /> : null;
     case "explore_data": return <ExploreView data={r} onAction={onAction} />;
     case "filter_data": return <FilterView data={r} onAction={onAction} />;
     case "categories": return r.categories ? <CategoriesView cats={r.categories as CatItem[]} onAction={onAction} /> : null;
@@ -194,27 +249,7 @@ function ToolResultView({ tr, onAction }: { tr: ToolResult; onAction: (t: string
   }
 }
 
-// ── Bubble ──────────────────────────────────────────────────────
-
-function Bubble({ msg, onAction }: { msg: ChatMessage; onAction: (t: string) => void }) {
-  if (msg.role === "user") return (
-    <div className="flex justify-end">
-      <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-primary px-4 py-3 text-sm text-primary-foreground whitespace-pre-wrap break-words">{msg.content}</div>
-    </div>
-  );
-  return (
-    <div className="flex gap-2.5">
-      <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10"><Sparkles className="h-3.5 w-3.5 text-primary" /></div>
-      <div className="max-w-[85%] space-y-2">
-        {msg.toolTraces?.length ? <Traces traces={msg.toolTraces} /> : null}
-        {msg.toolResults?.map((tr, i) => <ToolResultView key={i} tr={tr} onAction={onAction} />)}
-        {msg.content && <div className="rounded-2xl rounded-tl-sm bg-muted/60 px-4 py-3 text-sm"><MarkdownRenderer content={msg.content} onAction={onAction} /></div>}
-      </div>
-    </div>
-  );
-}
-
-// ── Traces (collapsible) ────────────────────────────────────────
+// ── Traces ──────────────────────────────────────────────────────
 
 function Traces({ traces }: { traces: ToolTrace[] }) {
   return <div className="space-y-1">{traces.map((t, i) => <TraceItem key={i} t={t} />)}</div>;
@@ -246,7 +281,7 @@ function DatasetCards({ datasets, onAction }: { datasets: DatasetCard[]; onActio
     <div className="space-y-1.5">{sorted.map((ds) => {
       const exp = ds.explorableCount > 0;
       return (
-        <button key={ds.id} onClick={() => exp && ds.tabularResources?.[0] ? onAction(`Explore la ressource ${ds.tabularResources[0].id} du dataset "${ds.title}"`) : onAction(`Détails du dataset ${ds.id}`)}
+        <button key={ds.id} onClick={() => onAction(`Détails du dataset ${ds.id}`)}
           className={`group flex w-full items-start gap-3 rounded-xl border p-3 text-left transition-all hover:shadow-sm ${exp ? "border-green-200 bg-green-50/50 hover:border-green-400 dark:border-green-900/50 dark:bg-green-950/20" : "bg-card hover:border-primary/40"}`}>
           <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${exp ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400" : "bg-primary/10 text-primary"}`}>{ds.number}</div>
           <div className="min-w-0 flex-1">
@@ -259,7 +294,7 @@ function DatasetCards({ datasets, onAction }: { datasets: DatasetCard[]; onActio
               {ds.lastModified && ds.lastModified !== "inconnue" && <><span>·</span><span>MAJ {ds.lastModified.slice(0, 10)}</span></>}
               <span>·</span><span>{fmt(ds.views)} vues</span>
             </div>
-            {exp && ds.tabularResources && <div className="mt-1 flex flex-wrap gap-1">{ds.tabularResources.slice(0, 3).map((r) => <span key={r.id} className="rounded bg-green-100/80 px-1.5 py-0.5 text-[10px] text-green-700 dark:bg-green-900/30 dark:text-green-400">{r.format} — {r.title.slice(0, 40)}</span>)}</div>}
+            {exp && ds.tabularResources && <div className="mt-1 flex flex-wrap gap-1">{ds.tabularResources.slice(0, 3).map((r) => <span key={r.id} className="rounded bg-green-100/80 px-1.5 py-0.5 text-[10px] text-green-700 dark:bg-green-900/30 dark:text-green-400">{r.format} — {r.title.slice(0, 35)}</span>)}</div>}
             <div className="mt-1 flex items-center gap-2">
               {ds.category && <span className="rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-medium text-primary">{ds.category}</span>}
               <a href={ds.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-primary"><ExternalLink className="h-2.5 w-2.5" /> data.gouv.fr</a>
@@ -272,22 +307,49 @@ function DatasetCards({ datasets, onAction }: { datasets: DatasetCard[]; onActio
   );
 }
 
-// ── ResourceCards ────────────────────────────────────────────────
+// ── ResourceCards (with download all) ───────────────────────────
 
-function ResourceCards({ resources, onAction }: { resources: ResourceCard[]; onAction: (t: string) => void }) {
+function ResourceCards({ resources, title, onAction }: { resources: ResourceCard[]; title?: string; onAction: (t: string) => void }) {
   const sorted = [...resources].sort((a, b) => a.tabular === b.tabular ? 0 : a.tabular ? -1 : 1);
   const expCount = resources.filter((r) => r.tabular).length;
+
+  const downloadAll = () => {
+    for (const r of resources) {
+      if (r.url) {
+        const a = document.createElement("a");
+        a.href = r.url; a.target = "_blank"; a.rel = "noopener";
+        a.click();
+      }
+    }
+  };
+
   return (
-    <div className="space-y-1">
-      <div className="px-1 text-[11px] font-medium text-muted-foreground">{resources.length} ressource{resources.length > 1 ? "s" : ""} — {expCount} exploitable{expCount > 1 ? "s" : ""}</div>
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between px-1">
+        <div className="text-[11px] font-medium text-muted-foreground">
+          {title && <span className="font-semibold text-foreground">{title}</span>}
+          {title && " — "}{resources.length} ressource{resources.length > 1 ? "s" : ""}, {expCount} exploitable{expCount > 1 ? "s" : ""}
+        </div>
+        <button onClick={downloadAll} className="flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-primary/10 hover:text-primary">
+          <Download className="h-3 w-3" /> Tout
+        </button>
+      </div>
       <div className="grid gap-1">{sorted.map((r) => (
         <div key={r.id} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${r.tabular ? "border-green-200 bg-green-50/50 dark:border-green-900/50 dark:bg-green-950/20" : "bg-card"}`}>
           <span className={`shrink-0 rounded px-1.5 py-0.5 font-mono font-bold uppercase ${r.tabular ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400" : "bg-muted text-muted-foreground"}`}>{r.format || "?"}</span>
-          <span className="min-w-0 flex-1 truncate font-medium">{r.title}</span>
+          <span className="min-w-0 flex-1 truncate font-medium" title={r.title}>{r.title}</span>
           {r.size && <span className="shrink-0 text-muted-foreground">{r.size}</span>}
           <div className="flex shrink-0 items-center gap-1">
-            {r.tabular && <button onClick={() => onAction(`Explore la ressource ${r.id}`)} className="rounded-md bg-green-100 px-2 py-0.5 font-medium text-green-700 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-400 dark:hover:bg-green-900/60">Explorer</button>}
-            {r.url && <a href={r.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="rounded-md bg-muted px-2 py-0.5 text-muted-foreground hover:text-foreground"><Download className="inline h-3 w-3" /></a>}
+            {r.tabular && (
+              <button onClick={() => onAction(`Explore la ressource ${r.id}`)} className="flex items-center gap-1 rounded-md bg-green-100 px-2 py-0.5 font-medium text-green-700 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-400 dark:hover:bg-green-900/60">
+                <Eye className="h-3 w-3" /> Explorer
+              </button>
+            )}
+            {r.url && (
+              <a href={r.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-muted-foreground hover:text-foreground" title="Télécharger">
+                <Download className="h-3 w-3" />
+              </a>
+            )}
           </div>
         </div>
       ))}</div>
@@ -295,7 +357,7 @@ function ResourceCards({ resources, onAction }: { resources: ResourceCard[]; onA
   );
 }
 
-// ── ExploreView (schema + data preview) ─────────────────────────
+// ── ExploreView (schema + data table + CSV download) ────────────
 
 function ExploreView({ data, onAction }: { data: Record<string, unknown>; onAction: (t: string) => void }) {
   const cols = (data.columns || []) as { name: string; type: string }[];
@@ -311,39 +373,36 @@ function ExploreView({ data, onAction }: { data: Record<string, unknown>; onActi
 
   return (
     <div className="space-y-2">
-      {/* Schema badges */}
+      {/* Header with actions */}
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-medium text-muted-foreground">{cols.length} colonnes, {fmt(total)} lignes</span>
+        <div className="flex items-center gap-1">
+          <button onClick={() => downloadCsv(displayCols, rows, `explore-${rid}`)} className="flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-primary/10 hover:text-primary">
+            <Download className="h-3 w-3" /> CSV
+          </button>
+        </div>
+      </div>
+
+      {/* Schema badges — clickable to filter */}
       <div className="flex flex-wrap gap-1">
-        {cols.slice(0, 12).map((c) => (
+        {cols.slice(0, 15).map((c) => (
           <button key={c.name} onClick={() => onAction(`Filtre la ressource ${rid} par ${c.name}`)}
-            className="group flex items-center gap-1 rounded-md border bg-card px-2 py-1 text-[10px] hover:border-primary/40">
+            className="group flex items-center gap-1 rounded-md border bg-card px-2 py-1 text-[10px] hover:border-primary/40 transition-colors">
             <span className="font-medium">{c.name}</span>
             <span className="rounded bg-muted px-1 text-muted-foreground">{c.type}</span>
-            <Filter className="h-2.5 w-2.5 text-muted-foreground/0 group-hover:text-primary" />
+            <Filter className="h-2.5 w-2.5 text-transparent group-hover:text-primary transition-colors" />
           </button>
         ))}
-        {cols.length > 12 && <span className="px-1 py-1 text-[10px] text-muted-foreground">+{cols.length - 12} colonnes</span>}
+        {cols.length > 15 && <span className="self-center px-1 py-1 text-[10px] text-muted-foreground">+{cols.length - 15}</span>}
       </div>
+
       {/* Data table */}
-      {rows.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border">
-          <table className="w-full text-[11px]">
-            <thead className="bg-muted/50">
-              <tr>{displayCols.slice(0, 8).map((c) => <th key={c} className="px-2 py-1.5 text-left font-medium whitespace-nowrap">{c}</th>)}</tr>
-            </thead>
-            <tbody>{rows.slice(0, 10).map((row, i) => (
-              <tr key={i} className="border-t hover:bg-muted/20">
-                {displayCols.slice(0, 8).map((c) => <td key={c} className="px-2 py-1 max-w-[200px] truncate">{String(row[c] ?? "")}</td>)}
-              </tr>
-            ))}</tbody>
-          </table>
-        </div>
-      )}
-      <div className="text-[10px] text-muted-foreground">{rows.length} / {fmt(total)} lignes affichées — {displayCols.length} colonnes</div>
+      <DataTable columns={displayCols} rows={rows} rid={rid} total={total} />
     </div>
   );
 }
 
-// ── FilterView (filtered data) ──────────────────────────────────
+// ── FilterView ──────────────────────────────────────────────────
 
 function FilterView({ data, onAction }: { data: Record<string, unknown>; onAction: (t: string) => void }) {
   const rows = (data.rows || []) as Record<string, string>[];
@@ -354,32 +413,80 @@ function FilterView({ data, onAction }: { data: Record<string, unknown>; onActio
   const rid = String(data.resource_id || "");
   const filters = data.filters as { column: string; value: string; operator: string } | null;
 
-  if (!rows.length) return <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">Aucun résultat pour ce filtre.</div>;
+  if (!rows.length) return <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">Aucun résultat.</div>;
 
   return (
     <div className="space-y-2">
-      {filters && (
-        <div className="flex items-center gap-2 text-xs">
-          <Filter className="h-3 w-3 text-primary" />
-          <span className="font-medium">{filters.column}</span>
-          <span className="text-muted-foreground">{filters.operator}</span>
-          <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">{filters.value}</span>
-          <span className="text-muted-foreground">— {fmt(total)} résultat{total > 1 ? "s" : ""}</span>
-        </div>
+      <div className="flex items-center justify-between">
+        {filters && (
+          <div className="flex items-center gap-2 text-xs">
+            <Filter className="h-3 w-3 text-primary" />
+            <span className="font-medium">{filters.column}</span>
+            <span className="text-muted-foreground">{filters.operator}</span>
+            <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">{filters.value}</span>
+            <span className="text-muted-foreground">— {fmt(total)} résultat{total > 1 ? "s" : ""}</span>
+          </div>
+        )}
+        <button onClick={() => downloadCsv(cols, rows, `filter-${rid}`)} className="flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-primary/10 hover:text-primary">
+          <Download className="h-3 w-3" /> CSV
+        </button>
+      </div>
+
+      <DataTable columns={cols} rows={rows} rid={rid} total={total} />
+
+      {hasMore && (
+        <button onClick={() => onAction(`Page suivante de la ressource ${rid}`)} className="w-full rounded-lg border bg-card py-2 text-xs font-medium text-primary hover:bg-primary/5">
+          Page suivante (page {page + 1})
+        </button>
       )}
+    </div>
+  );
+}
+
+// ── Shared DataTable ────────────────────────────────────────────
+
+function DataTable({ columns, rows, rid, total }: { columns: string[]; rows: Record<string, string>[]; rid: string; total: number }) {
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const maxCols = 8;
+  const visibleCols = columns.slice(0, maxCols);
+  const hiddenCols = columns.slice(maxCols);
+
+  return (
+    <>
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full text-[11px]">
-          <thead className="bg-muted/50"><tr>{cols.slice(0, 8).map((c) => <th key={c} className="px-2 py-1.5 text-left font-medium whitespace-nowrap">{c}</th>)}</tr></thead>
+          <thead className="bg-muted/50">
+            <tr>{visibleCols.map((c) => <th key={c} className="px-2 py-1.5 text-left font-medium whitespace-nowrap">{c}</th>)}</tr>
+          </thead>
           <tbody>{rows.slice(0, 20).map((row, i) => (
-            <tr key={i} className="border-t hover:bg-muted/20">{cols.slice(0, 8).map((c) => <td key={c} className="px-2 py-1 max-w-[200px] truncate">{String(row[c] ?? "")}</td>)}</tr>
+            <tr key={i} className={`border-t cursor-pointer transition-colors ${expanded === i ? "bg-primary/5" : "hover:bg-muted/20"}`}
+              onClick={() => setExpanded(expanded === i ? null : i)}>
+              {visibleCols.map((c) => <td key={c} className="px-2 py-1 max-w-[180px] truncate" title={String(row[c] ?? "")}>{String(row[c] ?? "")}</td>)}
+            </tr>
           ))}</tbody>
         </table>
       </div>
+
+      {/* Expanded row detail */}
+      {expanded !== null && rows[expanded] && (
+        <div className="rounded-lg border bg-primary/5 p-3 text-xs space-y-1">
+          <div className="flex items-center justify-between mb-1">
+            <span className="font-semibold text-primary">Ligne {expanded + 1}</span>
+            <button onClick={() => setExpanded(null)} className="text-muted-foreground hover:text-foreground">Fermer</button>
+          </div>
+          {columns.map((c) => (
+            <div key={c} className="flex gap-2">
+              <span className="shrink-0 font-medium text-muted-foreground w-32 truncate" title={c}>{c}</span>
+              <span className="break-all">{String(rows[expanded][c] ?? "—")}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-        <span>Page {page} — {rows.length} / {fmt(total)} lignes</span>
-        {hasMore && <button onClick={() => onAction(`Page suivante de la ressource ${rid}`)} className="rounded bg-primary/10 px-2 py-0.5 text-primary hover:bg-primary/20">Page suivante</button>}
+        <span>{Math.min(rows.length, 20)} / {fmt(total)} lignes · {columns.length} colonnes{hiddenCols.length > 0 ? ` (${hiddenCols.length} masquées)` : ""}</span>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -445,6 +552,18 @@ function fmt(n: number): string {
   if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
   if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
   return String(n || 0);
+}
+
+function downloadCsv(columns: string[], rows: Record<string, string>[], filename: string) {
+  const escape = (s: string) => `"${String(s ?? "").replace(/"/g, '""')}"`;
+  const header = columns.map(escape).join(",");
+  const body = rows.map((r) => columns.map((c) => escape(r[c])).join(",")).join("\n");
+  const csv = header + "\n" + body;
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `${filename}.csv`; a.click();
+  URL.revokeObjectURL(url);
 }
 
 function Welcome({ onSend }: { onSend: (t: string) => void }) {

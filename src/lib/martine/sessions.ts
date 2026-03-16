@@ -1,6 +1,7 @@
 /** Martine v2 — In-memory session store with TTL and sliding window */
 
 import type { MartineSession, MartineMessage } from "./types";
+import { logSession } from "./logger";
 
 const SESSION_TTL = 30 * 60_000; // 30 minutes
 const MAX_SESSIONS = 500;
@@ -13,7 +14,10 @@ if (typeof setInterval !== "undefined") {
   setInterval(() => {
     const now = Date.now();
     for (const [id, s] of sessions) {
-      if (now - s.lastActiveAt > SESSION_TTL) sessions.delete(id);
+      if (now - s.lastActiveAt > SESSION_TTL) {
+        logSession(id, "expired", s.messages.length, sessions.size - 1);
+        sessions.delete(id);
+      }
     }
   }, 60_000);
 }
@@ -45,6 +49,7 @@ export function getOrCreateSession(sessionId: string): MartineSession {
     lastActiveAt: Date.now(),
   };
   sessions.set(sessionId, session);
+  logSession(sessionId, "created", 0, sessions.size);
   return session;
 }
 

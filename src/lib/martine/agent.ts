@@ -9,6 +9,7 @@ import { Mistral } from "@mistralai/mistralai";
 import { TOOL_DEFINITIONS, executeTool } from "./tools";
 import { MARTINE_SYSTEM_PROMPT } from "./system-prompt";
 import { getOrCreateSession, appendMessages, getMessages } from "./sessions";
+import { logToolCall, logConversation, logError } from "./logger";
 import type { MartineMessage, SSEEvent } from "./types";
 
 const MARTINE_MODEL = process.env.MARTINE_MODEL || "mistral-medium-latest";
@@ -35,6 +36,7 @@ export async function* runAgent(
 ): AsyncGenerator<SSEEvent> {
   const mistral = getMistral();
   const session = getOrCreateSession(sessionId);
+  const agentStart = Date.now();
 
   // Ensure system prompt is first message
   if (session.messages.length === 0) {
@@ -91,6 +93,7 @@ export async function* runAgent(
         const assistantMsg: MartineMessage = { role: "assistant", content };
         newMessages.push(assistantMsg);
         appendMessages(sessionId, newMessages);
+        logConversation(sessionId, userMessage, toolRound, Date.now() - agentStart, MARTINE_MODEL);
         yield { event: "done", data: { content } };
         return;
       }
@@ -127,6 +130,15 @@ export async function* runAgent(
       const t0 = Date.now();
       const result = await executeTool(fnName, fnArgs);
       const durationMs = Date.now() - t0;
+
+      // Log tool call
+      const isErr = result.includes('"error"');
+      logToolCall(
+        sessionId, fnName, fnArgs,
+        isErr ? "error" : "ok",
+        durationMs, result.length,
+        isErr ? (JSON.parse(result).error || undefined) : undefined,
+      );
 
       yield { event: "tool_end", data: { tool: fnName, durationMs } };
 
@@ -176,6 +188,7 @@ export async function* runAgent(
   }
 
   appendMessages(sessionId, newMessages);
+  logConversation(sessionId, userMessage, toolRound, Date.now() - agentStart, MARTINE_MODEL);
   yield { event: "done", data: { content: fullContent } };
 }
 

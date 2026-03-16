@@ -10,6 +10,7 @@ module.exports = {
       env: {
         NODE_ENV: "production",
         PORT: 3000,
+        MARTINE_LOG_FILE: "/var/log/flowdatagouv/martine.ndjson",
       },
       kill_timeout: 5000,
       listen_timeout: 10000,

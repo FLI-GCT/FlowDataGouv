@@ -46,7 +46,7 @@ function MartinePageInner() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col overflow-hidden">
+    <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col overflow-hidden">
       <MartineChat sessionId={sessionId} initialQuery={initialQuery} />
     </div>
   );
