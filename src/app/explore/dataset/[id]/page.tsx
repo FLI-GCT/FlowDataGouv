@@ -25,7 +25,7 @@ export default function DatasetPage({
             onClick={() => router.back()}
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            Retour aux resultats
+            Retour aux résultats
           </Button>
         </div>
       </div>

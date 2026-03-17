@@ -105,7 +105,7 @@ export const apiTools: ToolDef[] = [
     schema: z.object({
       query: z.string().describe("Termes de recherche"),
       page: z.number().optional().describe("Page (defaut: 1)"),
-      page_size: z.number().optional().describe("Resultats par page (defaut: 20)"),
+      page_size: z.number().optional().describe("Résultats par page (defaut: 20)"),
     }),
     handler: async (args) => {
       const { data, source } = await withFallback(
@@ -123,7 +123,7 @@ export const apiTools: ToolDef[] = [
 
 function formatJson(label: string, data: unknown, source?: "proxy" | "direct"): string {
   const tag = source === "direct" ? " (via data.gouv.fr direct)" : "";
-  if (!data) return `${label}: aucun resultat${tag}`;
+  if (!data) return `${label}: aucun résultat${tag}`;
   const json = JSON.stringify(data, null, 2);
   if (json.length > 8000) {
     return `## ${label}${tag}\n\`\`\`json\n${json.slice(0, 8000)}\n...(tronque)\n\`\`\``;

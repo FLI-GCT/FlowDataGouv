@@ -76,7 +76,7 @@ export function MetricsChart({ metrics }: MetricsChartProps) {
         <div className="rounded-lg border bg-card p-3">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Download className="h-3.5 w-3.5" />
-            Telechargements
+            Téléchargements
           </div>
           <p className="mt-1 text-lg font-bold">{formatNumber(metrics.totalDownloads)}</p>
         </div>
@@ -132,7 +132,7 @@ export function MetricsChart({ metrics }: MetricsChartProps) {
               <Area
                 type="monotone"
                 dataKey="downloads"
-                name="Telechargements"
+                name="Téléchargements"
                 stroke="#22c55e"
                 fill="url(#dlGrad)"
                 strokeWidth={2}

@@ -89,7 +89,7 @@ function DateFilter({
     <div className="space-y-2">
       <div className="flex items-center gap-1.5">
         <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-        <h4 className="text-sm font-semibold text-foreground">Mise a jour</h4>
+        <h4 className="text-sm font-semibold text-foreground">Mise à jour</h4>
       </div>
       <div className="flex flex-wrap gap-1.5">
         {DATE_PRESETS.map((p) => (
@@ -129,7 +129,7 @@ function QualityFilter({
     <div className="space-y-2">
       <div className="flex items-center gap-1.5">
         <Star className="h-3.5 w-3.5 text-muted-foreground" />
-        <h4 className="text-sm font-semibold text-foreground">Qualite</h4>
+        <h4 className="text-sm font-semibold text-foreground">Qualité</h4>
       </div>
       <div className="space-y-0.5">
         {QUALITY_LEVELS.map((level) => (
@@ -545,7 +545,7 @@ export function FacetPanel({ facets, filters, onChange }: FacetPanelProps) {
     <div className="space-y-6">
       {/* Categories (Theme) */}
       <FacetGroup
-        title="Theme"
+        title="Thème"
         values={facets.categories}
         selected={filters.categories}
         onChange={(v) => onChange({ ...filters, categories: v, subcategories: [] })}
@@ -554,13 +554,13 @@ export function FacetPanel({ facets, filters, onChange }: FacetPanelProps) {
       {/* Subcategories (dynamic, shown when category selected) */}
       {facets.subcategories.length > 0 && (
         <FacetGroup
-          title="Sous-theme"
+          title="Sous-thème"
           values={facets.subcategories}
           selected={filters.subcategories}
           onChange={(v) => onChange({ ...filters, subcategories: v })}
           maxVisible={10}
           searchable
-          searchPlaceholder="Rechercher un sous-theme..."
+          searchPlaceholder="Rechercher un sous-thème..."
         />
       )}
 
