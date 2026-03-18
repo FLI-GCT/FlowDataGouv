@@ -287,7 +287,7 @@ export async function queryResourceData(
   resourceId: string,
   page = 1,
   pageSize = 20,
-  filters?: { column: string; value: string; operator?: string },
+  filters?: { column: string; value: string; operator?: string } | Array<{ column: string; value: string; operator?: string }>,
   sort?: { column: string; direction?: string },
 ): Promise<ParsedTabularData> {
   const params = new URLSearchParams({
@@ -295,10 +295,13 @@ export async function queryResourceData(
     page_size: String(Math.max(1, Math.min(pageSize, 200))),
   });
 
-  // Tabular API filter: column__operator=value
-  if (filters?.column && filters.value !== undefined) {
-    const op = filters.operator || "exact";
-    params.set(`${filters.column}__${op}`, filters.value);
+  // Tabular API filter: column__operator=value (single or multi)
+  const filterList = Array.isArray(filters) ? filters : filters ? [filters] : [];
+  for (const f of filterList) {
+    if (f.column && f.value !== undefined) {
+      const op = f.operator || "exact";
+      params.set(`${f.column}__${op}`, f.value);
+    }
   }
 
   // Tabular API sort: column__sort=asc|desc

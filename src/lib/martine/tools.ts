@@ -85,36 +85,31 @@ export const TOOL_DEFINITIONS = [
   {
     type: "function" as const,
     function: {
-      name: "explore_data",
+      name: "query_data",
       description:
-        "Aperçu du contenu d'une ressource tabulaire : schéma (colonnes, types) + 10 premières lignes. " +
-        "Appeler AVANT filter_data pour connaître les colonnes disponibles.",
+        "Interroge les données d'une ressource tabulaire. Retourne TOUJOURS le schéma (colonnes, types) " +
+        "et un aperçu des données. Supporte les filtres multiples et le tri. " +
+        "Sans filtre = aperçu des 10 premières lignes. Avec filtres = résultats filtrés (max 20).",
       parameters: {
         type: "object",
         properties: {
           resource_id: { type: "string", description: "Identifiant de la ressource (UUID)" },
-        },
-        required: ["resource_id"],
-      },
-    },
-  },
-  {
-    type: "function" as const,
-    function: {
-      name: "filter_data",
-      description:
-        "Interroge les données tabulaires d'une ressource avec un filtre. Retourne max 20 lignes. " +
-        "Appeler explore_data d'abord pour connaître les noms exacts des colonnes.",
-      parameters: {
-        type: "object",
-        properties: {
-          resource_id: { type: "string", description: "Identifiant de la ressource" },
-          column: { type: "string", description: "Nom exact de la colonne à filtrer" },
-          value: { type: "string", description: "Valeur à chercher" },
-          operator: {
-            type: "string",
-            description: "Opérateur de filtre (défaut: contains)",
-            enum: ["exact", "contains", "less", "greater"],
+          filters: {
+            type: "array",
+            description: "Filtres à appliquer (optionnel, plusieurs filtres combinés en AND)",
+            items: {
+              type: "object",
+              properties: {
+                column: { type: "string", description: "Nom de la colonne" },
+                value: { type: "string", description: "Valeur à chercher" },
+                operator: {
+                  type: "string",
+                  description: "Opérateur (défaut: contains)",
+                  enum: ["exact", "contains", "less", "greater"],
+                },
+              },
+              required: ["column", "value"],
+            },
           },
           sort_column: { type: "string", description: "Colonne de tri (optionnel)" },
           sort_direction: { type: "string", enum: ["asc", "desc"], description: "Direction du tri" },
@@ -152,8 +147,7 @@ type ToolHandler = (args: ToolArgs) => Promise<string>;
 const handlers: Record<string, ToolHandler> = {
   search_datasets: handleSearch,
   dataset_details: handleDatasetDetails,
-  explore_data: handleExploreData,
-  filter_data: handleFilterData,
+  query_data: handleQueryData,
   categories: handleCategories,
   catalog_stats: handleCatalogStats,
 };
@@ -313,92 +307,135 @@ async function handleDatasetDetails(args: ToolArgs): Promise<string> {
   });
 }
 
-async function handleExploreData(args: ToolArgs): Promise<string> {
-  const rid = String(args.resource_id);
+// ── Fuzzy column matching ─────────────────────────────────────
 
-  // Try Tabular API first (fast, structured)
-  const [schema, data] = await Promise.all([
-    getResourceSchema(rid).catch(() => null),
-    queryResourceData(rid, 1, 10).catch(() => null),
-  ]);
-
-  if (data?.rows?.length) {
-    return JSON.stringify({
-      resource_id: rid,
-      columns: schema?.columns?.map((c) => ({ name: c.name, type: c.type })) ?? [],
-      totalColumns: schema?.totalColumns ?? 0,
-      preview: data.rows.slice(0, 10),
-      totalRows: data.totalRows ?? 0,
-      datasetTitle: data.datasetTitle,
-    });
-  }
-
-  // Fallback: download + parse (for non-tabular resources)
-  // Check file size first to avoid downloading huge files
-  try {
-    const info = await getResourceInfo(rid);
-    const maxSize = 50 * 1024 * 1024; // 50 MB limit for download fallback
-    if (info.sizeBytes && info.sizeBytes > maxSize) {
-      return JSON.stringify({
-        resource_id: rid,
-        error: `Fichier trop volumineux (${info.size}) pour l'exploration directe. ` +
-          `Cette ressource n'est pas disponible via la Tabular API. ` +
-          `Format: ${info.format}. URL: ${info.url}`,
-        columns: [],
-        preview: [],
-        totalRows: 0,
-      });
-    }
-
-    const parsed = await downloadAndParseResource(rid, 10);
-    return JSON.stringify({
-      resource_id: rid,
-      columns: parsed.columns.map((c) => ({ name: c, type: "string" })),
-      totalColumns: parsed.columns.length,
-      preview: parsed.rows.slice(0, 10),
-      totalRows: parsed.totalRows,
-      resourceTitle: parsed.resourceTitle,
-      source: "download",
-    });
-  } catch (dlErr) {
-    return JSON.stringify({
-      resource_id: rid,
-      error: `Données non accessibles via la Tabular API ni par téléchargement: ${dlErr instanceof Error ? dlErr.message : "erreur inconnue"}`,
-      columns: schema?.columns?.map((c) => ({ name: c.name, type: c.type })) ?? [],
-      preview: [],
-      totalRows: 0,
-    });
-  }
+function normalizeColName(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // strip accents
+    .replace(/[_\- ]/g, ""); // strip separators
 }
 
-async function handleFilterData(args: ToolArgs): Promise<string> {
+function findClosestColumn(requested: string, available: string[]): string | null {
+  const norm = normalizeColName(requested);
+  // Exact match (case-insensitive, accent-insensitive)
+  const exact = available.find((c) => normalizeColName(c) === norm);
+  if (exact) return exact;
+  // Substring match (requested is contained in column name or vice versa)
+  const partial = available.find((c) => {
+    const cn = normalizeColName(c);
+    return cn.includes(norm) || norm.includes(cn);
+  });
+  return partial || null;
+}
+
+// ── Unified query_data handler ───────────────────────────────
+
+async function handleQueryData(args: ToolArgs): Promise<string> {
   const rid = String(args.resource_id);
   const page = Number(args.page) || 1;
-  const pageSize = 20;
-
-  // Build filter params for queryResourceData
-  const filterColumn = args.column ? String(args.column) : undefined;
-  const filterValue = args.value ? String(args.value) : undefined;
-  const filterOp = String(args.operator || "contains");
+  const rawFilters = Array.isArray(args.filters) ? args.filters as Array<{ column: string; value: string; operator?: string }> : [];
+  const hasFilters = rawFilters.length > 0;
+  const pageSize = hasFilters ? 20 : 10;
   const sortCol = args.sort_column ? String(args.sort_column) : undefined;
   const sortDir = args.sort_direction === "desc" ? "desc" : "asc";
 
-  const filters = filterColumn && filterValue
-    ? { column: filterColumn, value: filterValue, operator: filterOp }
-    : undefined;
-  const sort = sortCol ? { column: sortCol, direction: sortDir } : undefined;
+  // Always fetch schema in parallel with data
+  const schema = await getResourceSchema(rid).catch(() => null);
+  const availableColumns = schema?.columns?.map((c) => c.name) || [];
 
-  const data = await queryResourceData(rid, page, pageSize, filters, sort);
+  // Fuzzy-match filter column names
+  const corrections: Array<{ requested: string; corrected: string }> = [];
+  const resolvedFilters: Array<{ column: string; value: string; operator?: string }> = [];
 
-  return JSON.stringify({
-    resource_id: rid,
-    filters: filterColumn ? { column: filterColumn, value: filterValue, operator: filterOp } : null,
-    rows: data.rows.slice(0, 20),
-    columns: data.columns,
-    totalRows: data.totalRows,
-    page: data.page ?? page,
-    hasMore: data.hasMore,
-  });
+  for (const f of rawFilters) {
+    if (availableColumns.length && !availableColumns.includes(f.column)) {
+      const match = findClosestColumn(f.column, availableColumns);
+      if (match) {
+        corrections.push({ requested: f.column, corrected: match });
+        resolvedFilters.push({ column: match, value: f.value, operator: f.operator });
+      } else {
+        // Column not found — return schema with error
+        return JSON.stringify({
+          resource_id: rid,
+          error: `Colonne "${f.column}" introuvable`,
+          suggestion: availableColumns.slice(0, 10),
+          columns: schema?.columns?.map((c) => ({ name: c.name, type: c.type })) ?? [],
+          totalColumns: schema?.totalColumns ?? 0,
+          rows: [],
+          totalRows: 0,
+        });
+      }
+    } else {
+      resolvedFilters.push(f);
+    }
+  }
+
+  // Fuzzy-match sort column
+  let resolvedSort = sortCol ? { column: sortCol, direction: sortDir } : undefined;
+  if (sortCol && availableColumns.length && !availableColumns.includes(sortCol)) {
+    const match = findClosestColumn(sortCol, availableColumns);
+    if (match) resolvedSort = { column: match, direction: sortDir };
+  }
+
+  // Try Tabular API
+  try {
+    const data = await queryResourceData(
+      rid, page, pageSize,
+      resolvedFilters.length ? resolvedFilters : undefined,
+      resolvedSort,
+    );
+
+    return JSON.stringify({
+      resource_id: rid,
+      columns: schema?.columns?.map((c) => ({ name: c.name, type: c.type })) ?? [],
+      totalColumns: schema?.totalColumns ?? data.columns.length,
+      rows: data.rows,
+      totalRows: data.totalRows ?? 0,
+      page: data.page ?? page,
+      hasMore: data.hasMore,
+      filters: hasFilters ? resolvedFilters : null,
+      corrections: corrections.length ? corrections : undefined,
+    });
+  } catch (tabErr) {
+    // Tabular API failed — try download fallback (only for non-filtered requests)
+    if (!hasFilters) {
+      try {
+        const info = await getResourceInfo(rid);
+        const maxSize = 50 * 1024 * 1024;
+        if (info.sizeBytes && info.sizeBytes > maxSize) {
+          return JSON.stringify({
+            resource_id: rid,
+            error: `Fichier trop volumineux (${info.size}) pour l'exploration directe. Format: ${info.format}.`,
+            columns: schema?.columns?.map((c) => ({ name: c.name, type: c.type })) ?? [],
+            totalColumns: schema?.totalColumns ?? 0,
+            rows: [],
+            totalRows: 0,
+          });
+        }
+        const parsed = await downloadAndParseResource(rid, 10);
+        return JSON.stringify({
+          resource_id: rid,
+          columns: parsed.columns.map((c) => ({ name: c, type: "string" })),
+          totalColumns: parsed.columns.length,
+          rows: parsed.rows.slice(0, 10),
+          totalRows: parsed.totalRows,
+          source: "download",
+        });
+      } catch { /* download also failed */ }
+    }
+
+    // Return schema with error so the LLM can still reason about columns
+    return JSON.stringify({
+      resource_id: rid,
+      error: tabErr instanceof Error ? tabErr.message : "Erreur d'accès aux données",
+      columns: schema?.columns?.map((c) => ({ name: c.name, type: c.type })) ?? [],
+      totalColumns: schema?.totalColumns ?? 0,
+      rows: [],
+      totalRows: 0,
+      suggestion: availableColumns.length ? availableColumns.slice(0, 10) : undefined,
+    });
+  }
 }
 
 async function handleCategories(): Promise<string> {

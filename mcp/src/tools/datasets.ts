@@ -76,7 +76,7 @@ export const datasetTools: ToolDef[] = [
         lines.push(`- ${mark} **${r.title}** (${r.format}, ${r.filesize || "?"}) — \`${r.id}\``);
       }
       if (explorable.length > 0) {
-        lines.push(`\n**Ressources exploitables** : utilisez datagouv_resource_schema puis datagouv_resource_data avec les IDs ci-dessus.`);
+        lines.push(`\n**Ressources exploitables** : utilisez datagouv_resource_data avec les IDs ci-dessus (le schema est inclus automatiquement).`);
       }
       return [{ type: "text" as const, text: lines.join("\n") }];
     },
@@ -86,59 +86,85 @@ export const datasetTools: ToolDef[] = [
     name: "datagouv_resource_data",
     description: [
       "Interroge les donnees tabulaires d'une ressource CSV/XLS via l'API Tabular.",
-      "⚠️ Appelez d'abord datagouv_resource_schema pour connaitre les noms exacts des colonnes.",
-      "Supporte filtrage par colonne et tri. Operateurs : exact, contains, less, greater.",
-      "Si la Tabular API n'est pas disponible, tente un telechargement direct (fichiers < 50 Mo).",
+      "Retourne TOUJOURS le schema des colonnes avec les donnees.",
+      "Supporte filtres multiples (combinaison AND) et tri.",
+      "Operateurs : exact, contains, less, greater.",
+      "Si la Tabular API n'est pas disponible, tente un telechargement direct (< 50 Mo).",
     ].join("\n"),
     schema: z.object({
       resource_id: z.string().describe("ID de la ressource"),
       page: z.number().optional().describe("Page (defaut: 1)"),
       page_size: z.number().optional().describe("Lignes par page (defaut: 20, max: 200)"),
-      filter_column: z.string().optional().describe("Colonne a filtrer"),
+      filter_column: z.string().optional().describe("Colonne a filtrer (filtre unique, compat ancien format)"),
       filter_value: z.string().optional().describe("Valeur du filtre"),
       filter_operator: z.enum(["exact", "contains", "less", "greater", "strictly_less", "strictly_greater"]).optional().describe("Operateur de filtre (defaut: exact)"),
+      filters: z.array(z.object({
+        column: z.string().describe("Nom de colonne"),
+        value: z.string().describe("Valeur"),
+        operator: z.enum(["exact", "contains", "less", "greater"]).optional().describe("Operateur"),
+      })).optional().describe("Filtres multiples (alternative a filter_column/value)"),
       sort_column: z.string().optional().describe("Colonne de tri"),
       sort_direction: z.enum(["asc", "desc"]).optional().describe("Direction du tri (defaut: asc)"),
     }),
     handler: async (args) => {
-      const proxyArgs: Record<string, unknown> = {
-        resource_id: args.resource_id,
-        page: args.page || 1,
-        page_size: args.page_size || 20,
-      };
-      if (args.filter_column) {
-        proxyArgs.filter_column = args.filter_column;
-        proxyArgs.filter_value = args.filter_value || "";
-        proxyArgs.filter_operator = args.filter_operator || "exact";
+      const rid = args.resource_id as string;
+      const page = (args.page as number) || 1;
+      const pageSize = (args.page_size as number) || 20;
+
+      // Build filters array (support both old single-filter and new multi-filter)
+      const filterList: Array<{ column: string; value: string; operator?: string }> = [];
+      if (args.filters && Array.isArray(args.filters)) {
+        for (const f of args.filters as Array<{ column: string; value: string; operator?: string }>) {
+          filterList.push(f);
+        }
+      } else if (args.filter_column) {
+        filterList.push({
+          column: args.filter_column as string,
+          value: (args.filter_value || "") as string,
+          operator: (args.filter_operator || "exact") as string,
+        });
       }
-      if (args.sort_column) {
-        proxyArgs.sort_column = args.sort_column;
-        proxyArgs.sort_direction = args.sort_direction || "asc";
-      }
-      const filters = args.filter_column
-        ? { column: args.filter_column as string, value: (args.filter_value || "") as string, operator: args.filter_operator as string }
-        : undefined;
+
       const sort = args.sort_column
-        ? { column: args.sort_column as string, direction: args.sort_direction as string }
+        ? { column: args.sort_column as string, direction: (args.sort_direction || "asc") as string }
         : undefined;
-      // Try Tabular API first, then download fallback
+
+      // Always fetch schema in parallel
+      let schema: string[] = [];
       try {
-        const { data, source } = await withFallback(
-          () => flowdata.proxyDatagouvCall("query_resource_data", proxyArgs),
-          () => datagouv.queryResourceData(args.resource_id as string, (args.page as number) || 1, (args.page_size as number) || 20, filters, sort),
-        );
-        return [{ type: "text" as const, text: formatResult("Donnees", data, source) }];
+        const s = await datagouv.getResourceSchema(rid);
+        schema = s.columns.map((c) => `${c.name} (${c.type})`);
+      } catch { /* schema unavailable */ }
+
+      // Try Tabular API first
+      try {
+        const data = await datagouv.queryResourceData(rid, page, pageSize, filterList.length ? filterList : undefined, sort);
+        const lines = [
+          schema.length ? `**Schema**: ${schema.join(", ")}` : "",
+          `**Donnees**: ${data.totalRows} lignes, page ${data.page || page}`,
+          "",
+          formatResult("Resultats", data),
+        ].filter(Boolean);
+        return [{ type: "text" as const, text: lines.join("\n") }];
       } catch {
-        // Fallback: try download + parse via proxy (for non-tabular resources < 50 MB)
+        // Fallback: download + parse
         try {
           const result = await flowdata.proxyDatagouvCall("download_and_parse_resource", {
-            resource_id: args.resource_id,
-            max_rows: (args.page_size as number) || 20,
+            resource_id: rid,
+            max_rows: pageSize,
           });
-          return [{ type: "text" as const, text: formatResult("Donnees (via telechargement)", result) }];
+          const lines = [
+            schema.length ? `**Schema**: ${schema.join(", ")}` : "",
+            formatResult("Donnees (via telechargement)", result),
+          ].filter(Boolean);
+          return [{ type: "text" as const, text: lines.join("\n") }];
         } catch (dlErr) {
           const msg = dlErr instanceof Error ? dlErr.message : "Erreur inconnue";
-          return [{ type: "text" as const, text: `Donnees non disponibles via la Tabular API ni par telechargement: ${msg}` }];
+          const lines = [
+            schema.length ? `**Schema disponible**: ${schema.join(", ")}` : "",
+            `Donnees non disponibles: ${msg}`,
+          ].filter(Boolean);
+          return [{ type: "text" as const, text: lines.join("\n") }];
         }
       }
     },
@@ -202,8 +228,8 @@ export const datasetTools: ToolDef[] = [
     name: "datagouv_resource_schema",
     description: [
       "Recupere le schema (colonnes, types) d'une ressource tabulaire.",
-      "IMPORTANT: Appelez cet outil AVANT datagouv_resource_data pour connaitre",
-      "les noms exacts des colonnes disponibles et leurs types.",
+      "Note: datagouv_resource_data retourne aussi le schema automatiquement.",
+      "Utilisez cet outil si vous avez besoin du schema seul (sans donnees).",
       "Retourne : nom de colonne, type (string/int/float/date...), format detecte.",
     ].join("\n"),
     schema: z.object({

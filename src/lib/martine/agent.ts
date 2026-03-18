@@ -150,7 +150,7 @@ export async function* runAgent(
 
       const toolMsg: MartineMessage = {
         role: "tool",
-        content: result,
+        content: compressForLLM(fnName, result),
         toolCallId: tc.id,
         name: fnName,
       };
@@ -190,6 +190,75 @@ export async function* runAgent(
   appendMessages(sessionId, newMessages);
   logConversation(sessionId, userMessage, toolRound, Date.now() - agentStart, MARTINE_MODEL);
   yield { event: "done", data: { content: fullContent } };
+}
+
+// ── LLM Response Compression ─────────────────────────────────
+
+/**
+ * Compress tool results for Mistral context (save tokens).
+ * The frontend gets the FULL data via tool_result SSE event.
+ * Mistral only needs enough info to reason and compose a response.
+ */
+function compressForLLM(toolName: string, fullResult: string): string {
+  try {
+    const data = JSON.parse(fullResult);
+
+    switch (toolName) {
+      case "search_datasets": {
+        // Strip URLs, licenses, downloads — frontend already has them
+        const results = (data.results || []).slice(0, 8).map((r: Record<string, unknown>) => ({
+          number: r.number,
+          id: r.id,
+          title: r.title,
+          organization: r.organization,
+          category: r.category,
+          explorableCount: r.explorableCount,
+        }));
+        return JSON.stringify({ query: data.query, total: data.total, results });
+      }
+
+      case "dataset_details": {
+        // Truncate description, simplify resources
+        const resources = (data.resources || []).map((r: Record<string, unknown>) => ({
+          id: r.id,
+          title: (r.title as string)?.slice(0, 50),
+          format: r.format,
+          tabular: r.tabular,
+        }));
+        return JSON.stringify({
+          id: data.id,
+          title: data.title,
+          organization: data.organization,
+          description: data.description?.slice(0, 200),
+          explorableCount: data.explorableCount,
+          resources,
+          metrics: data.metrics,
+        });
+      }
+
+      case "query_data": {
+        // Max 5 rows for LLM (frontend shows all), columns name+type only
+        return JSON.stringify({
+          resource_id: data.resource_id,
+          columns: data.columns,
+          totalColumns: data.totalColumns,
+          rows: (data.rows || []).slice(0, 5),
+          totalRows: data.totalRows,
+          hasMore: data.hasMore,
+          filters: data.filters,
+          corrections: data.corrections,
+          error: data.error,
+          suggestion: data.suggestion,
+        });
+      }
+
+      default:
+        // For other tools (categories, catalog_stats), return as-is (already compact)
+        return fullResult;
+    }
+  } catch {
+    return fullResult;
+  }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────

@@ -42,15 +42,18 @@ export async function queryResourceData(
   resourceId: string,
   page = 1,
   pageSize = 20,
-  filters?: { column: string; value: string; operator?: string },
+  filters?: { column: string; value: string; operator?: string } | Array<{ column: string; value: string; operator?: string }>,
   sort?: { column: string; direction?: string },
 ) {
   const params = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),
   });
-  if (filters?.column && filters.value !== undefined) {
-    params.set(`${filters.column}__${filters.operator || "exact"}`, filters.value);
+  const filterList = Array.isArray(filters) ? filters : filters ? [filters] : [];
+  for (const f of filterList) {
+    if (f.column && f.value !== undefined) {
+      params.set(`${f.column}__${f.operator || "exact"}`, f.value);
+    }
   }
   if (sort?.column) {
     params.set(`${sort.column}__sort`, sort.direction || "asc");

@@ -32,8 +32,7 @@ const EXAMPLES = [
 const TOOL_LABELS: Record<string, string> = {
   search_datasets: "Recherche de datasets",
   dataset_details: "Chargement des détails",
-  explore_data: "Exploration des données",
-  filter_data: "Filtrage des données",
+  query_data: "Interrogation des données",
   categories: "Chargement des catégories",
   catalog_stats: "Statistiques du catalogue",
 };
@@ -241,8 +240,7 @@ function ToolResultView({ tr, onAction }: { tr: ToolResult; onAction: (t: string
   switch (tr.tool) {
     case "search_datasets": return r.results ? <DatasetCards datasets={r.results as DatasetCard[]} onAction={onAction} /> : null;
     case "dataset_details": return r.resources ? <ResourceCards resources={r.resources as ResourceCard[]} title={r.title as string} onAction={onAction} /> : null;
-    case "explore_data": return <ExploreView data={r} onAction={onAction} />;
-    case "filter_data": return <FilterView data={r} onAction={onAction} />;
+    case "query_data": return <QueryDataView data={r} onAction={onAction} />;
     case "categories": return r.categories ? <CategoriesView cats={r.categories as CatItem[]} onAction={onAction} /> : null;
     case "catalog_stats": return <StatsView data={r} onAction={onAction} />;
     default: return null;
@@ -357,83 +355,100 @@ function ResourceCards({ resources, title, onAction }: { resources: ResourceCard
   );
 }
 
-// ── ExploreView (schema + data table + CSV download) ────────────
+// ── QueryDataView (unified schema + data + filters + CSV) ────
 
-function ExploreView({ data, onAction }: { data: Record<string, unknown>; onAction: (t: string) => void }) {
-  const cols = (data.columns || []) as { name: string; type: string }[];
-  const rows = (data.preview || []) as Record<string, string>[];
-  const total = Number(data.totalRows) || 0;
-  const rid = String(data.resource_id || "");
-  const err = data.error as string | undefined;
-
-  if (err) return <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">{err}</div>;
-  if (!cols.length && !rows.length) return null;
-
-  const displayCols = cols.length ? cols.map((c) => c.name) : rows.length ? Object.keys(rows[0]) : [];
-
-  return (
-    <div className="space-y-2">
-      {/* Header with actions */}
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] font-medium text-muted-foreground">{cols.length} colonnes, {fmt(total)} lignes</span>
-        <div className="flex items-center gap-1">
-          <button onClick={() => downloadCsv(displayCols, rows, `explore-${rid}`)} className="flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-primary/10 hover:text-primary">
-            <Download className="h-3 w-3" /> CSV
-          </button>
-        </div>
-      </div>
-
-      {/* Schema badges — clickable to filter */}
-      <div className="flex flex-wrap gap-1">
-        {cols.slice(0, 15).map((c) => (
-          <button key={c.name} onClick={() => onAction(`Filtre la ressource ${rid} par ${c.name}`)}
-            className="group flex items-center gap-1 rounded-md border bg-card px-2 py-1 text-[10px] hover:border-primary/40 transition-colors">
-            <span className="font-medium">{c.name}</span>
-            <span className="rounded bg-muted px-1 text-muted-foreground">{c.type}</span>
-            <Filter className="h-2.5 w-2.5 text-transparent group-hover:text-primary transition-colors" />
-          </button>
-        ))}
-        {cols.length > 15 && <span className="self-center px-1 py-1 text-[10px] text-muted-foreground">+{cols.length - 15}</span>}
-      </div>
-
-      {/* Data table */}
-      <DataTable columns={displayCols} rows={rows} rid={rid} total={total} />
-    </div>
-  );
-}
-
-// ── FilterView ──────────────────────────────────────────────────
-
-function FilterView({ data, onAction }: { data: Record<string, unknown>; onAction: (t: string) => void }) {
-  const rows = (data.rows || []) as Record<string, string>[];
-  const cols = (data.columns || []) as string[];
+function QueryDataView({ data, onAction }: { data: Record<string, unknown>; onAction: (t: string) => void }) {
+  const cols = (data.columns || []) as ({ name: string; type: string } | string)[];
+  const rows = (data.rows || data.preview || []) as Record<string, string>[];
   const total = Number(data.totalRows) || 0;
   const page = Number(data.page) || 1;
   const hasMore = Boolean(data.hasMore);
   const rid = String(data.resource_id || "");
-  const filters = data.filters as { column: string; value: string; operator: string } | null;
+  const err = data.error as string | undefined;
+  const filters = data.filters as Array<{ column: string; value: string; operator?: string }> | null;
+  const corrections = data.corrections as Array<{ requested: string; corrected: string }> | undefined;
+  const suggestion = data.suggestion as string[] | undefined;
 
-  if (!rows.length) return <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">Aucun résultat.</div>;
+  // Normalize column names
+  const colNames = cols.map((c) => typeof c === "string" ? c : c.name);
+  const colTypes = cols.map((c) => typeof c === "string" ? null : c.type);
+
+  if (err && !rows.length) {
+    return (
+      <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs space-y-1">
+        <span className="text-destructive">{err}</span>
+        {suggestion && (
+          <div className="flex flex-wrap gap-1 mt-1">
+            <span className="text-muted-foreground">Colonnes disponibles :</span>
+            {suggestion.map((s) => (
+              <button key={s} onClick={() => onAction(`Interroge la ressource ${rid} avec le filtre ${s}`)}
+                className="rounded bg-card border px-1.5 py-0.5 font-medium text-[10px] hover:border-primary/40">{s}</button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (!colNames.length && !rows.length) return null;
+
+  const displayCols = colNames.length ? colNames : rows.length ? Object.keys(rows[0]) : [];
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        {filters && (
-          <div className="flex items-center gap-2 text-xs">
-            <Filter className="h-3 w-3 text-primary" />
-            <span className="font-medium">{filters.column}</span>
-            <span className="text-muted-foreground">{filters.operator}</span>
-            <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">{filters.value}</span>
-            <span className="text-muted-foreground">— {fmt(total)} résultat{total > 1 ? "s" : ""}</span>
-          </div>
-        )}
-        <button onClick={() => downloadCsv(cols, rows, `filter-${rid}`)} className="flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-primary/10 hover:text-primary">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          {filters && filters.length > 0 && (
+            <div className="flex items-center gap-1 text-xs flex-wrap">
+              <Filter className="h-3 w-3 text-primary shrink-0" />
+              {filters.map((f, i) => (
+                <span key={i} className="flex items-center gap-1">
+                  {i > 0 && <span className="text-muted-foreground">+</span>}
+                  <span className="font-medium">{f.column}</span>
+                  <span className="text-muted-foreground">{f.operator || "contains"}</span>
+                  <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">{f.value}</span>
+                </span>
+              ))}
+              <span className="text-muted-foreground">— {fmt(total)} résultat{total > 1 ? "s" : ""}</span>
+            </div>
+          )}
+          {!filters && <span className="text-[11px] font-medium text-muted-foreground">{colNames.length} colonnes, {fmt(total)} lignes</span>}
+        </div>
+        <button onClick={() => downloadCsv(displayCols, rows, `query-${rid}`)} className="flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-primary/10 hover:text-primary shrink-0">
           <Download className="h-3 w-3" /> CSV
         </button>
       </div>
 
-      <DataTable columns={cols} rows={rows} rid={rid} total={total} />
+      {/* Corrections notice */}
+      {corrections && corrections.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 px-3 py-1.5 text-[10px] text-amber-700 dark:text-amber-400">
+          Correction auto : {corrections.map((c) => `"${c.requested}" → "${c.corrected}"`).join(", ")}
+        </div>
+      )}
 
+      {/* Schema badges — clickable to filter (only show when no filters active) */}
+      {!filters && colTypes.some(Boolean) && (
+        <div className="flex flex-wrap gap-1">
+          {cols.slice(0, 15).map((c, i) => {
+            const name = typeof c === "string" ? c : c.name;
+            const type = typeof c === "string" ? null : c.type;
+            return (
+              <button key={name} onClick={() => onAction(`Interroge la ressource ${rid} avec le filtre ${name}`)}
+                className="group flex items-center gap-1 rounded-md border bg-card px-2 py-1 text-[10px] hover:border-primary/40 transition-colors">
+                <span className="font-medium">{name}</span>
+                {type && <span className="rounded bg-muted px-1 text-muted-foreground">{type}</span>}
+                <Filter className="h-2.5 w-2.5 text-transparent group-hover:text-primary transition-colors" />
+              </button>
+            );
+          })}
+          {cols.length > 15 && <span className="self-center px-1 py-1 text-[10px] text-muted-foreground">+{cols.length - 15} colonnes</span>}
+        </div>
+      )}
+
+      {/* Data table */}
+      {rows.length > 0 && <DataTable columns={displayCols} rows={rows} rid={rid} total={total} />}
+
+      {/* Pagination */}
       {hasMore && (
         <button onClick={() => onAction(`Page suivante de la ressource ${rid}`)} className="w-full rounded-lg border bg-card py-2 text-xs font-medium text-primary hover:bg-primary/5">
           Page suivante (page {page + 1})
