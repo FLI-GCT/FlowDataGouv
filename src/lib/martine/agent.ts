@@ -252,6 +252,37 @@ function compressForLLM(toolName: string, fullResult: string): string {
         });
       }
 
+      case "compare_data": {
+        const comps = (data.comparisons || []).map((c: Record<string, unknown>) => ({
+          label: c.label,
+          dataset: c.dataset ? { title: (c.dataset as Record<string, unknown>).title } : null,
+          rows: ((c.rows as Record<string, string>[]) || []).slice(0, 3),
+          totalRows: c.totalRows,
+          searchColumn: c.searchColumn,
+          error: c.error,
+        }));
+        return JSON.stringify({ comparisons: comps });
+      }
+
+      case "search_and_preview": {
+        // Compress datasets: keep id, title, org, matching rows (max 3)
+        const datasets = (data.datasets || []).map((ds: Record<string, unknown>) => ({
+          id: ds.id,
+          title: ds.title,
+          organization: ds.organization,
+          resource: ds.resource,
+          searchColumn: ds.searchColumn,
+          matchingRows: ((ds.matchingRows as Record<string, string>[]) || []).slice(0, 3),
+          totalRows: ds.totalRows,
+        }));
+        return JSON.stringify({
+          query: data.query,
+          data_query: data.data_query,
+          total: data.total,
+          datasets,
+        });
+      }
+
       default:
         // For other tools (categories, catalog_stats), return as-is (already compact)
         return fullResult;

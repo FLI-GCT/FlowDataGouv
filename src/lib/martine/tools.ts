@@ -122,6 +122,54 @@ export const TOOL_DEFINITIONS = [
   {
     type: "function" as const,
     function: {
+      name: "search_and_preview",
+      description:
+        "Recherche un dataset ET explore ses données en un seul appel. " +
+        "Idéal pour les questions factuelles : trouver une entreprise, une valeur, un chiffre. " +
+        "Cherche dans le catalogue, identifie les ressources exploitables, puis filtre les données.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Recherche catalogue (ex: 'base sirene entreprises')" },
+          data_query: { type: "string", description: "Texte à chercher DANS les données (ex: '2B SYSTEM', 'Lyon')" },
+          category: { type: "string", description: "Catégorie (optionnel)" },
+          max_datasets: { type: "number", description: "Nombre max de datasets à explorer (défaut: 3, max: 5)" },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "compare_data",
+      description:
+        "Compare des données de plusieurs sources en parallèle. Idéal pour comparer des villes, " +
+        "régions ou thématiques. Exécute toutes les recherches et explorations simultanément.",
+      parameters: {
+        type: "object",
+        properties: {
+          queries: {
+            type: "array",
+            description: "Liste des recherches à comparer (max 4)",
+            items: {
+              type: "object",
+              properties: {
+                label: { type: "string", description: "Étiquette pour cette comparaison (ex: 'Lyon', 'Dijon')" },
+                search_query: { type: "string", description: "Recherche catalogue" },
+                data_query: { type: "string", description: "Texte à chercher dans les données (optionnel)" },
+              },
+              required: ["label", "search_query"],
+            },
+          },
+        },
+        required: ["queries"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "categories",
       description: "Liste les 18 catégories thématiques du catalogue avec le nombre de datasets.",
       parameters: { type: "object", properties: {} },
@@ -148,6 +196,8 @@ const handlers: Record<string, ToolHandler> = {
   search_datasets: handleSearch,
   dataset_details: handleDatasetDetails,
   query_data: handleQueryData,
+  search_and_preview: handleSearchAndPreview,
+  compare_data: handleCompareData,
   categories: handleCategories,
   catalog_stats: handleCatalogStats,
 };
@@ -436,6 +486,242 @@ async function handleQueryData(args: ToolArgs): Promise<string> {
       suggestion: availableColumns.length ? availableColumns.slice(0, 10) : undefined,
     });
   }
+}
+
+// ── search_and_preview: one-shot search + data lookup ────────
+
+async function handleSearchAndPreview(args: ToolArgs): Promise<string> {
+  const query = String(args.query || "");
+  const dataQuery = args.data_query ? String(args.data_query) : null;
+  const categories = args.category ? [String(args.category)] : undefined;
+  const maxDatasets = Math.min(Number(args.max_datasets) || 3, 5);
+
+  // Step 1: Search catalog
+  const result = await searchEngine.search({
+    keywords: query.split(/\s+/).filter(Boolean),
+    categories,
+    page: 1,
+    pageSize: maxDatasets * 2, // fetch more to filter explorable ones
+  });
+
+  if (!result.items.length) {
+    return JSON.stringify({ query, data_query: dataQuery, total: 0, datasets: [], message: "Aucun dataset trouvé" });
+  }
+
+  // Step 2: For each dataset, find explorable resources and optionally search within
+  const TABULAR_API = "https://tabular-api.data.gouv.fr/api/";
+  const TAB_FORMATS = new Set(["csv", "xls", "xlsx", "json", "tsv", "ods"]);
+
+  interface DatasetPreview {
+    id: string;
+    title: string;
+    organization: string;
+    category: string;
+    resource?: { id: string; title: string; format: string };
+    columns?: Array<{ name: string; type: string }>;
+    matchingRows?: Record<string, string>[];
+    totalRows?: number;
+    searchColumn?: string;
+    error?: string;
+  }
+
+  const previews: DatasetPreview[] = [];
+  let explored = 0;
+
+  for (const item of result.items) {
+    if (explored >= maxDatasets) break;
+
+    try {
+      // List resources and find tabular ones
+      const resList = await Promise.race([
+        listDatasetResources(item.id),
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), 4000)),
+      ]);
+
+      const candidates = resList.resources.filter(
+        (r) => TAB_FORMATS.has((r.format || "").toLowerCase()),
+      );
+      if (!candidates.length) continue;
+
+      // Find first explorable resource
+      let explorableResource: typeof candidates[0] | null = null;
+      for (const r of candidates.slice(0, 3)) {
+        try {
+          const probe = await fetch(`${TABULAR_API}resources/${r.id}/profile/`, {
+            signal: AbortSignal.timeout(3000),
+          });
+          if (probe.status === 200) { explorableResource = r; break; }
+        } catch { /* next */ }
+      }
+      if (!explorableResource) continue;
+
+      explored++;
+      const preview: DatasetPreview = {
+        id: item.id,
+        title: item.title,
+        organization: item.organization || "",
+        category: item.categoryLabel || "",
+        resource: { id: explorableResource.id, title: explorableResource.title, format: explorableResource.format },
+      };
+
+      // Get schema
+      const schema = await getResourceSchema(explorableResource.id).catch(() => null);
+      if (schema?.columns) {
+        preview.columns = schema.columns.map((c) => ({ name: c.name, type: c.type }));
+      }
+
+      // If data_query provided, search within data
+      if (dataQuery && schema?.columns) {
+        // Find text-like columns to search in (string type, name-like)
+        const textCols = schema.columns
+          .filter((c) => c.type === "string" || c.type === "text" || c.type === "unknown")
+          .map((c) => c.name);
+
+        // Prioritize columns with "nom", "name", "libelle", "denomination", "titre" in name
+        const namePatterns = /nom|name|libel|denom|titre|raison|label|desc/i;
+        const priorityCols = textCols.filter((c) => namePatterns.test(c));
+        const searchCols = priorityCols.length ? priorityCols : textCols.slice(0, 3);
+
+        // Try each column until we find matches
+        for (const col of searchCols) {
+          try {
+            const data = await queryResourceData(
+              explorableResource.id, 1, 5,
+              [{ column: col, value: dataQuery, operator: "contains" }],
+            );
+            if (data.rows?.length) {
+              preview.matchingRows = data.rows.slice(0, 5);
+              preview.totalRows = data.totalRows;
+              preview.searchColumn = col;
+              break;
+            }
+          } catch { /* try next column */ }
+        }
+      } else if (!dataQuery) {
+        // No data_query — just get a preview of first rows
+        try {
+          const data = await queryResourceData(explorableResource.id, 1, 5);
+          preview.matchingRows = data.rows?.slice(0, 5);
+          preview.totalRows = data.totalRows;
+        } catch { /* preview unavailable */ }
+      }
+
+      previews.push(preview);
+    } catch { /* skip dataset */ }
+  }
+
+  return JSON.stringify({
+    query,
+    data_query: dataQuery,
+    total: result.total,
+    datasets: previews,
+  });
+}
+
+// ── compare_data: parallel multi-source comparison ───────────
+
+async function handleCompareData(args: ToolArgs): Promise<string> {
+  const queries = Array.isArray(args.queries) ? args.queries as Array<{ label: string; search_query: string; data_query?: string }> : [];
+  if (!queries.length) return JSON.stringify({ error: "Aucune requête de comparaison fournie" });
+  if (queries.length > 4) return JSON.stringify({ error: "Maximum 4 comparaisons" });
+
+  const TABULAR_API = "https://tabular-api.data.gouv.fr/api/";
+  const TAB_FORMATS = new Set(["csv", "xls", "xlsx", "json", "tsv", "ods"]);
+
+  interface ComparisonResult {
+    label: string;
+    query: string;
+    dataset?: { id: string; title: string; organization: string };
+    resource?: { id: string; title: string; format: string };
+    columns?: Array<{ name: string; type: string }>;
+    rows?: Record<string, string>[];
+    totalRows?: number;
+    searchColumn?: string;
+    error?: string;
+  }
+
+  // Execute all comparisons in parallel
+  const comparisons: ComparisonResult[] = await Promise.all(
+    queries.map(async (q): Promise<ComparisonResult> => {
+      const comp: ComparisonResult = { label: q.label, query: q.search_query };
+
+      try {
+        // Search
+        const result = await searchEngine.search({
+          keywords: q.search_query.split(/\s+/).filter(Boolean),
+          page: 1,
+          pageSize: 6,
+        });
+
+        if (!result.items.length) {
+          comp.error = "Aucun dataset trouvé";
+          return comp;
+        }
+
+        // Find first explorable dataset
+        for (const item of result.items.slice(0, 4)) {
+          try {
+            const resList = await Promise.race([
+              listDatasetResources(item.id),
+              new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), 4000)),
+            ]);
+
+            const candidates = resList.resources.filter(
+              (r) => TAB_FORMATS.has((r.format || "").toLowerCase()),
+            );
+
+            for (const r of candidates.slice(0, 3)) {
+              try {
+                const probe = await fetch(`${TABULAR_API}resources/${r.id}/profile/`, { signal: AbortSignal.timeout(3000) });
+                if (probe.status !== 200) continue;
+
+                comp.dataset = { id: item.id, title: item.title, organization: item.organization || "" };
+                comp.resource = { id: r.id, title: r.title, format: r.format };
+
+                // Get schema + data
+                const schema = await getResourceSchema(r.id).catch(() => null);
+                if (schema?.columns) comp.columns = schema.columns.map((c) => ({ name: c.name, type: c.type }));
+
+                if (q.data_query && schema?.columns) {
+                  // Search in data
+                  const namePatterns = /nom|name|libel|denom|titre|label|commune|ville/i;
+                  const textCols = schema.columns.filter((c) => c.type === "string" || c.type === "text" || c.type === "unknown").map((c) => c.name);
+                  const searchCols = textCols.filter((c) => namePatterns.test(c)).length ? textCols.filter((c) => namePatterns.test(c)) : textCols.slice(0, 2);
+
+                  for (const col of searchCols) {
+                    try {
+                      const data = await queryResourceData(r.id, 1, 5, [{ column: col, value: q.data_query, operator: "contains" }]);
+                      if (data.rows?.length) {
+                        comp.rows = data.rows.slice(0, 5);
+                        comp.totalRows = data.totalRows;
+                        comp.searchColumn = col;
+                        return comp;
+                      }
+                    } catch { /* next col */ }
+                  }
+                }
+
+                // No data_query or no match — get preview
+                const data = await queryResourceData(r.id, 1, 5).catch(() => null);
+                if (data?.rows) {
+                  comp.rows = data.rows.slice(0, 5);
+                  comp.totalRows = data.totalRows;
+                }
+                return comp;
+              } catch { /* next resource */ }
+            }
+          } catch { /* next item */ }
+        }
+
+        if (!comp.dataset) comp.error = "Aucune ressource exploitable trouvée";
+      } catch (e) {
+        comp.error = e instanceof Error ? e.message : "Erreur";
+      }
+      return comp;
+    }),
+  );
+
+  return JSON.stringify({ comparisons });
 }
 
 async function handleCategories(): Promise<string> {

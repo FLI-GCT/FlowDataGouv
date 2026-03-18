@@ -33,6 +33,8 @@ const TOOL_LABELS: Record<string, string> = {
   search_datasets: "Recherche de datasets",
   dataset_details: "Chargement des détails",
   query_data: "Interrogation des données",
+  search_and_preview: "Recherche et aperçu des données",
+  compare_data: "Comparaison de données",
   categories: "Chargement des catégories",
   catalog_stats: "Statistiques du catalogue",
 };
@@ -241,6 +243,8 @@ function ToolResultView({ tr, onAction }: { tr: ToolResult; onAction: (t: string
     case "search_datasets": return r.results ? <DatasetCards datasets={r.results as DatasetCard[]} onAction={onAction} /> : null;
     case "dataset_details": return r.resources ? <ResourceCards resources={r.resources as ResourceCard[]} title={r.title as string} onAction={onAction} /> : null;
     case "query_data": return <QueryDataView data={r} onAction={onAction} />;
+    case "search_and_preview": return <SearchPreviewView data={r} onAction={onAction} />;
+    case "compare_data": return <CompareView data={r} onAction={onAction} />;
     case "categories": return r.categories ? <CategoriesView cats={r.categories as CatItem[]} onAction={onAction} /> : null;
     case "catalog_stats": return <StatsView data={r} onAction={onAction} />;
     default: return null;
@@ -454,6 +458,190 @@ function QueryDataView({ data, onAction }: { data: Record<string, unknown>; onAc
           Page suivante (page {page + 1})
         </button>
       )}
+    </div>
+  );
+}
+
+// ── SearchPreviewView (search + inline data preview) ─────────
+
+function SearchPreviewView({ data, onAction }: { data: Record<string, unknown>; onAction: (t: string) => void }) {
+  const datasets = (data.datasets || []) as Array<{
+    id: string; title: string; organization: string; category: string;
+    resource?: { id: string; title: string; format: string };
+    columns?: Array<{ name: string; type: string }>;
+    matchingRows?: Record<string, string>[];
+    totalRows?: number; searchColumn?: string; error?: string;
+  }>;
+  const dataQueryText = data.data_query as string | null;
+  const total = Number(data.total) || 0;
+
+  if (!datasets.length) return <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">Aucun dataset exploitable trouvé.</div>;
+
+  return (
+    <div className="space-y-3">
+      <div className="text-[11px] text-muted-foreground">
+        {total} dataset{total > 1 ? "s" : ""} trouvé{total > 1 ? "s" : ""}
+        {dataQueryText && <> — recherche <span className="font-medium text-primary">&quot;{dataQueryText}&quot;</span> dans les données</>}
+      </div>
+
+      {datasets.map((ds) => (
+        <div key={ds.id} className="rounded-lg border bg-card overflow-hidden">
+          {/* Dataset header */}
+          <div className="flex items-start justify-between gap-2 px-3 py-2 bg-muted/30">
+            <div className="min-w-0">
+              <button onClick={() => onAction(`Détails du dataset ${ds.id}`)} className="text-xs font-semibold text-foreground hover:text-primary transition-colors text-left line-clamp-1">
+                {ds.title}
+              </button>
+              <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
+                {ds.organization && <span>{ds.organization}</span>}
+                {ds.category && <><span>·</span><span>{ds.category}</span></>}
+              </div>
+            </div>
+            {ds.resource && (
+              <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">
+                {ds.resource.format}
+              </span>
+            )}
+          </div>
+
+          {/* Data preview */}
+          {ds.matchingRows && ds.matchingRows.length > 0 && (
+            <div className="px-3 py-2 space-y-1.5">
+              {ds.searchColumn && (
+                <div className="flex items-center gap-1.5 text-[10px]">
+                  <Search className="h-3 w-3 text-green-600" />
+                  <span className="text-green-700 dark:text-green-400 font-medium">
+                    {ds.matchingRows.length} résultat{ds.matchingRows.length > 1 ? "s" : ""}
+                    {ds.totalRows && ds.totalRows > ds.matchingRows.length && ` sur ${fmt(ds.totalRows)}`}
+                    {" "}dans <code className="bg-muted px-1 rounded">{ds.searchColumn}</code>
+                  </span>
+                </div>
+              )}
+              <DataTable
+                columns={ds.columns ? ds.columns.map((c) => c.name) : Object.keys(ds.matchingRows[0])}
+                rows={ds.matchingRows}
+                rid={ds.resource?.id || ""}
+                total={ds.totalRows || ds.matchingRows.length}
+              />
+              {ds.resource && (
+                <div className="flex gap-1.5">
+                  <button onClick={() => onAction(`Explore la ressource ${ds.resource!.id}`)}
+                    className="flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary hover:bg-primary/20">
+                    <Eye className="h-3 w-3" /> Explorer
+                  </button>
+                  <button onClick={() => downloadCsv(ds.columns ? ds.columns.map((c) => c.name) : Object.keys(ds.matchingRows![0]), ds.matchingRows!, `preview-${ds.id}`)}
+                    className="flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-primary/10 hover:text-primary">
+                    <Download className="h-3 w-3" /> CSV
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* No data found */}
+          {ds.matchingRows && ds.matchingRows.length === 0 && dataQueryText && (
+            <div className="px-3 py-2 text-[10px] text-muted-foreground">
+              Aucune correspondance pour &quot;{dataQueryText}&quot; dans ce dataset.
+              {ds.resource && (
+                <button onClick={() => onAction(`Explore la ressource ${ds.resource!.id}`)} className="ml-1 text-primary hover:underline">Explorer quand même</button>
+              )}
+            </div>
+          )}
+
+          {/* Schema preview (when no matching rows but columns available) */}
+          {!ds.matchingRows && ds.columns && ds.columns.length > 0 && (
+            <div className="px-3 py-2">
+              <div className="flex flex-wrap gap-1">
+                {ds.columns.slice(0, 8).map((c) => (
+                  <span key={c.name} className="rounded-md border bg-muted/50 px-1.5 py-0.5 text-[9px]">
+                    {c.name} <span className="text-muted-foreground">{c.type}</span>
+                  </span>
+                ))}
+                {ds.columns.length > 8 && <span className="self-center text-[9px] text-muted-foreground">+{ds.columns.length - 8}</span>}
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── CompareView (side-by-side comparison) ────────────────────
+
+function CompareView({ data, onAction }: { data: Record<string, unknown>; onAction: (t: string) => void }) {
+  const comparisons = (data.comparisons || []) as Array<{
+    label: string; query: string;
+    dataset?: { id: string; title: string; organization: string };
+    resource?: { id: string; title: string; format: string };
+    columns?: Array<{ name: string; type: string }>;
+    rows?: Record<string, string>[];
+    totalRows?: number; searchColumn?: string; error?: string;
+  }>;
+
+  if (!comparisons.length) return null;
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {comparisons.map((comp, i) => (
+        <div key={i} className="rounded-lg border bg-card overflow-hidden">
+          {/* Header */}
+          <div className="px-3 py-2 bg-muted/40 border-b">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-primary">{comp.label}</span>
+              {comp.resource && (
+                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">{comp.resource.format}</span>
+              )}
+            </div>
+            {comp.dataset && (
+              <button onClick={() => onAction(`Détails du dataset ${comp.dataset!.id}`)}
+                className="text-[10px] text-muted-foreground hover:text-primary line-clamp-1 text-left mt-0.5">
+                {comp.dataset.title}
+              </button>
+            )}
+          </div>
+
+          {/* Content */}
+          <div className="p-2">
+            {comp.error && (
+              <div className="rounded bg-destructive/5 border border-destructive/20 px-2 py-1.5 text-[10px] text-destructive">
+                {comp.error}
+              </div>
+            )}
+
+            {comp.rows && comp.rows.length > 0 && (
+              <div className="space-y-1.5">
+                {comp.searchColumn && (
+                  <div className="flex items-center gap-1 text-[10px] text-green-600">
+                    <Search className="h-2.5 w-2.5" />
+                    <span>{comp.rows.length} résultat{comp.rows.length > 1 ? "s" : ""} dans {comp.searchColumn}</span>
+                  </div>
+                )}
+                <DataTable
+                  columns={comp.columns ? comp.columns.map((c) => c.name) : Object.keys(comp.rows[0])}
+                  rows={comp.rows}
+                  rid={comp.resource?.id || ""}
+                  total={comp.totalRows || comp.rows.length}
+                />
+                {comp.resource && (
+                  <button onClick={() => onAction(`Explore la ressource ${comp.resource!.id}`)}
+                    className="flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary hover:bg-primary/20 w-full justify-center">
+                    <Eye className="h-3 w-3" /> Explorer en détail
+                  </button>
+                )}
+              </div>
+            )}
+
+            {!comp.rows && comp.columns && (
+              <div className="flex flex-wrap gap-1">
+                {comp.columns.slice(0, 6).map((c) => (
+                  <span key={c.name} className="rounded border bg-muted/50 px-1 py-0.5 text-[9px]">{c.name}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
