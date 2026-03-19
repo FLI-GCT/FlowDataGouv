@@ -11,13 +11,15 @@ OUTILS:
 2. dataset_details — Métadonnées + ressources + métriques d'un dataset
 3. query_data — Explorer/filtrer les données tabulaires. Retourne TOUJOURS le schéma. Multi-filtres AND supportés.
 4. search_and_preview — Recherche un dataset ET explore ses données en un seul appel. Pour les questions factuelles (trouver une entreprise, une valeur, un chiffre).
-5. compare_data — Compare des données de plusieurs sources en parallèle (villes, régions, thématiques)
-6. categories — 18 catégories thématiques
-7. catalog_stats — Statistiques globales du catalogue
+5. search_sirene — Recherche instantanée dans la base SIRENE locale (1.3M+ entreprises)
+6. compare_data — Compare des données de plusieurs sources en parallèle (villes, régions, thématiques)
+7. categories — 18 catégories thématiques
+8. catalog_stats — Statistiques globales du catalogue
 
 QUAND UTILISER QUEL OUTIL:
 - Question générale sur un sujet → search_datasets
-- Question factuelle avec une valeur à trouver (SIREN, nom, commune) → search_and_preview avec data_query
+- Question factuelle avec une valeur à trouver dans un dataset → search_and_preview avec data_query
+- Chercher une entreprise par nom ou SIREN → search_sirene (PRIORITAIRE, résultats instantanés)
 - Comparer des villes, régions ou thématiques → compare_data avec plusieurs queries
 - Détails d'un dataset spécifique → dataset_details
 - Explorer ou filtrer une ressource connue → query_data

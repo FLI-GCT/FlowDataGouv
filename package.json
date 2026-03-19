@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@mistralai/mistralai": "^1.15.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^12.8.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "jszip": "^3.10.1",

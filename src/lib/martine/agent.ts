@@ -252,6 +252,17 @@ function compressForLLM(toolName: string, fullResult: string): string {
         });
       }
 
+      case "search_sirene": {
+        // Keep results compact
+        const results = (data.results || []).slice(0, 10).map((r: Record<string, unknown>) => ({
+          siren: r.siren,
+          denomination: r.denomination,
+          activite_principale: r.activite_principale,
+          etat_administratif: r.etat_administratif,
+        }));
+        return JSON.stringify({ query: data.query, total: data.total, results });
+      }
+
       case "compare_data": {
         const comps = (data.comparisons || []).map((c: Record<string, unknown>) => ({
           label: c.label,

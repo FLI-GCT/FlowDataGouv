@@ -18,6 +18,7 @@ import {
 import * as fs from "fs/promises";
 import * as path from "path";
 import type { Catalog } from "@/lib/sync/catalog";
+import { searchEntreprises, isAvailable as isSireneAvailable } from "@/lib/sirene/db";
 
 // ── Catalog cache (for categories + stats) ─────────────────────
 
@@ -142,6 +143,29 @@ export const TOOL_DEFINITIONS = [
   {
     type: "function" as const,
     function: {
+      name: "search_sirene",
+      description:
+        "Recherche une entreprise dans la base SIRENE locale (1.3M+ entreprises françaises). " +
+        "Recherche par nom, SIREN, sigle ou activité. Résultats instantanés (< 50 ms).",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Nom de l'entreprise ou numéro SIREN (9 chiffres)" },
+          statut: {
+            type: "string",
+            description: "Filtrer par statut (A = Active, C = Cessée)",
+            enum: ["A", "C"],
+          },
+          activite: { type: "string", description: "Code APE/NAF (ex: '62.01Z' pour programmation informatique)" },
+          limit: { type: "number", description: "Nombre max de résultats (défaut: 10, max: 50)" },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "compare_data",
       description:
         "Compare des données de plusieurs sources en parallèle. Idéal pour comparer des villes, " +
@@ -197,6 +221,7 @@ const handlers: Record<string, ToolHandler> = {
   dataset_details: handleDatasetDetails,
   query_data: handleQueryData,
   search_and_preview: handleSearchAndPreview,
+  search_sirene: handleSearchSirene,
   compare_data: handleCompareData,
   categories: handleCategories,
   catalog_stats: handleCatalogStats,
@@ -615,6 +640,44 @@ async function handleSearchAndPreview(args: ToolArgs): Promise<string> {
     data_query: dataQuery,
     total: result.total,
     datasets: previews,
+  });
+}
+
+// ── search_sirene: local SIRENE database search ─────────────
+
+async function handleSearchSirene(args: ToolArgs): Promise<string> {
+  if (!isSireneAvailable()) {
+    return JSON.stringify({
+      error: "Base SIRENE non disponible sur ce serveur",
+      hint: "La base SIRENE n'a pas encore été importée. Utilisez search_and_preview pour chercher dans les datasets data.gouv.fr.",
+    });
+  }
+
+  const query = String(args.query || "").trim();
+  if (!query) return JSON.stringify({ error: "Paramètre query requis" });
+
+  const limit = Math.min(Number(args.limit) || 10, 50);
+  const filters: { etat_administratif?: string; activite_principale?: string } = {};
+  if (args.statut) filters.etat_administratif = String(args.statut).toUpperCase();
+  if (args.activite) filters.activite_principale = String(args.activite);
+
+  const { total, results } = searchEntreprises(query, filters, limit);
+
+  return JSON.stringify({
+    query,
+    total,
+    results: results.map((r) => ({
+      siren: r.siren,
+      denomination: r.denomination,
+      sigle: r.sigle,
+      activite_principale: r.activite_principale,
+      categorie_juridique: r.categorie_juridique,
+      tranche_effectifs: r.tranche_effectifs,
+      date_creation: r.date_creation,
+      etat_administratif: r.etat_administratif,
+      adresse: r.adresse,
+      url: `/entreprise/${r.siren}`,
+    })),
   });
 }
 

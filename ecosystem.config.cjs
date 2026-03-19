@@ -11,6 +11,7 @@ module.exports = {
         NODE_ENV: "production",
         PORT: 3000,
         MARTINE_LOG_FILE: "/var/log/flowdatagouv/martine.ndjson",
+        SIRENE_DB_PATH: "/var/lib/flowdatagouv/sirene.db",
       },
       kill_timeout: 5000,
       listen_timeout: 10000,

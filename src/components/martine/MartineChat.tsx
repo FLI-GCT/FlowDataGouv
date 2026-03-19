@@ -34,6 +34,7 @@ const TOOL_LABELS: Record<string, string> = {
   dataset_details: "Chargement des détails",
   query_data: "Interrogation des données",
   search_and_preview: "Recherche et aperçu des données",
+  search_sirene: "Recherche SIRENE",
   compare_data: "Comparaison de données",
   categories: "Chargement des catégories",
   catalog_stats: "Statistiques du catalogue",
@@ -244,6 +245,7 @@ function ToolResultView({ tr, onAction }: { tr: ToolResult; onAction: (t: string
     case "dataset_details": return r.resources ? <ResourceCards resources={r.resources as ResourceCard[]} title={r.title as string} onAction={onAction} /> : null;
     case "query_data": return <QueryDataView data={r} onAction={onAction} />;
     case "search_and_preview": return <SearchPreviewView data={r} onAction={onAction} />;
+    case "search_sirene": return <EntrepriseCards data={r} onAction={onAction} />;
     case "compare_data": return <CompareView data={r} onAction={onAction} />;
     case "categories": return r.categories ? <CategoriesView cats={r.categories as CatItem[]} onAction={onAction} /> : null;
     case "catalog_stats": return <StatsView data={r} onAction={onAction} />;
@@ -561,6 +563,67 @@ function SearchPreviewView({ data, onAction }: { data: Record<string, unknown>; 
               </div>
             </div>
           )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── EntrepriseCards (SIRENE results) ─────────────────────────
+
+function EntrepriseCards({ data, onAction }: { data: Record<string, unknown>; onAction: (t: string) => void }) {
+  const results = (data.results || []) as Array<{
+    siren: string; denomination: string; sigle?: string;
+    activite_principale?: string; categorie_juridique?: string;
+    tranche_effectifs?: string; date_creation?: string;
+    etat_administratif: string; adresse?: string; url?: string;
+  }>;
+  const total = Number(data.total) || 0;
+  const query = data.query as string || "";
+
+  if (data.error) {
+    return <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">{String(data.error)}</div>;
+  }
+  if (!results.length) {
+    return <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">Aucune entreprise trouvée pour &quot;{query}&quot;</div>;
+  }
+
+  const EFFECTIFS: Record<string, string> = {
+    "NN": "Non employeuse", "00": "0", "01": "1-2", "02": "3-5", "03": "6-9",
+    "11": "10-19", "12": "20-49", "21": "50-99", "22": "100-199", "31": "200-249",
+    "32": "250-499", "41": "500-999", "42": "1000-1999", "51": "2000-4999",
+    "52": "5000-9999", "53": "10000+",
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <div className="text-[11px] text-muted-foreground">
+        {fmt(total)} entreprise{total > 1 ? "s" : ""} trouvée{total > 1 ? "s" : ""} pour &quot;{query}&quot;
+      </div>
+      {results.map((e) => (
+        <div key={e.siren} className="group rounded-lg border bg-card hover:border-primary/30 transition-colors overflow-hidden">
+          <div className="flex items-start justify-between gap-2 px-3 py-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <a href={e.url || `/entreprise/${e.siren}`} className="text-xs font-semibold hover:text-primary transition-colors line-clamp-1">
+                  {e.denomination || "Sans dénomination"}
+                </a>
+                {e.sigle && <span className="shrink-0 text-[10px] text-muted-foreground">({e.sigle})</span>}
+              </div>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[10px] text-muted-foreground">
+                <span className="font-mono">{e.siren}</span>
+                {e.activite_principale && <span>APE {e.activite_principale}</span>}
+                {e.tranche_effectifs && EFFECTIFS[e.tranche_effectifs] && (
+                  <span>{EFFECTIFS[e.tranche_effectifs]} salariés</span>
+                )}
+                {e.date_creation && <span>Créée {e.date_creation}</span>}
+                {e.adresse && <span>{e.adresse}</span>}
+              </div>
+            </div>
+            <span className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold ${e.etat_administratif === "A" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}`}>
+              {e.etat_administratif === "A" ? "Active" : "Cessée"}
+            </span>
+          </div>
         </div>
       ))}
     </div>
