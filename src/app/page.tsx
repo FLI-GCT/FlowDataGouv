@@ -71,7 +71,7 @@ export default async function Home() {
             FlowDataGouv
           </h1>
           <p className="mt-4 text-lg text-muted-foreground">
-            Explorez les 73 000+ datasets et APIs ouvertes francaises.
+            Explorez les 73 000+ datasets, APIs ouvertes et 29 millions d&apos;entreprises francaises.
             <br />
             Recherche intelligente propulsee par{" "}
             <a
@@ -90,6 +90,13 @@ export default async function Home() {
               className="underline hover:text-foreground font-medium"
             >
               data.gouv.fr
+            </a>
+            {" "}&middot;{" "}
+            <a
+              href="/statut"
+              className="underline hover:text-foreground font-medium"
+            >
+              Serveur MCP
             </a>
           </p>
         </div>
