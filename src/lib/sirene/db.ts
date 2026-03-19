@@ -120,37 +120,43 @@ export function searchEntreprises(
 
   const whereStr = whereClauses.length ? " AND " + whereClauses.join(" AND ") : "";
 
-  // Try FTS5 first (skip COUNT for performance — 29M rows COUNT is 4s)
-  try {
-    const ftsQuery = query.trim().replace(/['"]/g, "").split(/\s+/).map(w => `"${w}"`).join(" ");
-    const sql = `
-      SELECT u.*
-      FROM fts_entreprise f
-      JOIN unite_legale u ON u.rowid = f.rowid
-      WHERE fts_entreprise MATCH ?${whereStr}
-      ORDER BY rank
-      LIMIT ? OFFSET ?
-    `;
-    const results = d.prepare(sql).all(ftsQuery, ...whereParams, limit + 1, offset) as EntrepriseRow[];
-    const hasMore = results.length > limit;
-    if (hasMore) results.pop();
-    return { total: hasMore ? offset + limit + 1 : offset + results.length, results };
-  } catch {
-    // FTS failed — fallback to LIKE
+  // FTS5 search (fast: 2-10 ms on warm cache)
+  const words = query.trim().replace(/['"]/g, "").split(/\s+/).filter(Boolean);
+  if (words.length > 0) {
+    try {
+      // FTS5 query: each word quoted, AND logic
+      const ftsQuery = words.map(w => `"${w}"`).join(" ");
+      const sql = `
+        SELECT u.*
+        FROM fts_entreprise f
+        JOIN unite_legale u ON u.rowid = f.rowid
+        WHERE fts_entreprise MATCH ?${whereStr}
+        ORDER BY rank
+        LIMIT ? OFFSET ?
+      `;
+      const results = d.prepare(sql).all(ftsQuery, ...whereParams, limit + 1, offset) as EntrepriseRow[];
+      const hasMore = results.length > limit;
+      if (hasMore) results.pop();
+      return { total: hasMore ? offset + limit + 1 : offset + results.length, results };
+    } catch (ftsErr) {
+      console.warn(`[sirene] FTS error: ${ftsErr instanceof Error ? ftsErr.message : ftsErr}`);
+    }
   }
 
-  // Fallback: LIKE search (no COUNT for performance)
-  const likeSql = `
+  // Fallback: exact prefix match on denomination (uses index, fast)
+  // Avoid full LIKE %...% which scans 29M rows
+  const prefixSql = `
     SELECT * FROM unite_legale u
     WHERE u.denomination LIKE ?${whereStr}
     ORDER BY u.denomination
     LIMIT ? OFFSET ?
   `;
-  const likePattern = `%${query.trim()}%`;
-  const results = d.prepare(likeSql).all(likePattern, ...whereParams, limit + 1, offset) as EntrepriseRow[];
-  const hasMore = results.length > limit;
+  // Use prefix match (faster) if single word, otherwise use contains
+  const likePattern = words.length === 1 ? `${words[0]}%` : `%${query.trim()}%`;
+  const results = d.prepare(prefixSql).all(likePattern, ...whereParams, Math.min(limit + 1, 21), offset) as EntrepriseRow[];
+  const hasMore = results.length > Math.min(limit, 20);
   if (hasMore) results.pop();
-  return { total: hasMore ? offset + limit + 1 : offset + results.length, results };
+  return { total: hasMore ? offset + results.length + 1 : offset + results.length, results };
 }
 
 export function getEntreprise(siren: string): EntrepriseRow | null {
