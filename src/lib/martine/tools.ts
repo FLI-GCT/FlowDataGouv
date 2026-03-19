@@ -132,7 +132,7 @@ export const TOOL_DEFINITIONS = [
         type: "object",
         properties: {
           query: { type: "string", description: "Recherche catalogue (ex: 'base sirene entreprises')" },
-          data_query: { type: "string", description: "Texte à chercher DANS les données (ex: '2B SYSTEM', 'Lyon')" },
+          data_query: { type: "string", description: "Texte à chercher DANS les données (ex: 'Flow Line', 'Lyon')" },
           category: { type: "string", description: "Catégorie (optionnel)" },
           max_datasets: { type: "number", description: "Nombre max de datasets à explorer (défaut: 3, max: 5)" },
         },

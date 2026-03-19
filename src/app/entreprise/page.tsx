@@ -142,7 +142,7 @@ export default function EntreprisesPage() {
           <div className="mt-8 text-center text-sm text-muted-foreground space-y-2">
             <p>Exemples de recherche :</p>
             <div className="flex flex-wrap justify-center gap-2">
-              {["SANTIANE", "2B SYSTEM", "489649897", "CARREFOUR"].map((ex) => (
+              {["FLOW LINE INTEGRATION", "SANTIANE", "489649897", "CARREFOUR"].map((ex) => (
                 <button
                   key={ex}
                   onClick={() => { setQuery(ex); }}

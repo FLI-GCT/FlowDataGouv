@@ -287,7 +287,7 @@ export default function McpPage() {
           <div className="space-y-4">
             {[
               { prompt: "Quels datasets sur la qualite de l'air en Ile-de-France ?", flow: "smart_search → dataset_info → resource_data" },
-              { prompt: "Trouve l'entreprise 2B SYSTEM dans la base SIRENE", flow: "smart_search → resource_schema → resource_data (filtre)" },
+              { prompt: "Trouve l'entreprise Flow Line Integration dans la base SIRENE", flow: "search_sirene → entreprise detail" },
               { prompt: "Quelles APIs existent pour le geocodage ?", flow: "search_apis → api_spec" },
               { prompt: "Compare les donnees demographiques Lyon vs Dijon", flow: "smart_search (×2) → resource_data (×2)" },
             ].map((ex) => (
