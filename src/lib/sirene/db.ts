@@ -120,45 +120,37 @@ export function searchEntreprises(
 
   const whereStr = whereClauses.length ? " AND " + whereClauses.join(" AND ") : "";
 
-  // Try FTS5 first
+  // Try FTS5 first (skip COUNT for performance — 29M rows COUNT is 4s)
   try {
     const ftsQuery = query.trim().replace(/['"]/g, "").split(/\s+/).map(w => `"${w}"`).join(" ");
     const sql = `
-      SELECT u.*, rank
+      SELECT u.*
       FROM fts_entreprise f
       JOIN unite_legale u ON u.rowid = f.rowid
       WHERE fts_entreprise MATCH ?${whereStr}
       ORDER BY rank
       LIMIT ? OFFSET ?
     `;
-    const countSql = `
-      SELECT COUNT(*) as cnt
-      FROM fts_entreprise f
-      JOIN unite_legale u ON u.rowid = f.rowid
-      WHERE fts_entreprise MATCH ?${whereStr}
-    `;
-    const results = d.prepare(sql).all(ftsQuery, ...whereParams, limit, offset) as EntrepriseRow[];
-    const countRow = d.prepare(countSql).get(ftsQuery, ...whereParams) as { cnt: number };
-    return { total: countRow?.cnt || results.length, results };
+    const results = d.prepare(sql).all(ftsQuery, ...whereParams, limit + 1, offset) as EntrepriseRow[];
+    const hasMore = results.length > limit;
+    if (hasMore) results.pop();
+    return { total: hasMore ? offset + limit + 1 : offset + results.length, results };
   } catch {
     // FTS failed — fallback to LIKE
   }
 
-  // Fallback: LIKE search
+  // Fallback: LIKE search (no COUNT for performance)
   const likeSql = `
     SELECT * FROM unite_legale u
     WHERE u.denomination LIKE ?${whereStr}
     ORDER BY u.denomination
     LIMIT ? OFFSET ?
   `;
-  const likeCountSql = `
-    SELECT COUNT(*) as cnt FROM unite_legale u
-    WHERE u.denomination LIKE ?${whereStr}
-  `;
   const likePattern = `%${query.trim()}%`;
-  const results = d.prepare(likeSql).all(likePattern, ...whereParams, limit, offset) as EntrepriseRow[];
-  const countRow = d.prepare(likeCountSql).get(likePattern, ...whereParams) as { cnt: number };
-  return { total: countRow?.cnt || results.length, results };
+  const results = d.prepare(likeSql).all(likePattern, ...whereParams, limit + 1, offset) as EntrepriseRow[];
+  const hasMore = results.length > limit;
+  if (hasMore) results.pop();
+  return { total: hasMore ? offset + limit + 1 : offset + results.length, results };
 }
 
 export function getEntreprise(siren: string): EntrepriseRow | null {
@@ -181,7 +173,11 @@ export function getEtablissements(siren: string): EtablissementRow[] {
   return stmtGetEtablissements.all(siren) as EtablissementRow[];
 }
 
+// Cached stats (computed once, ~4s on first call for 29M rows)
+let cachedStats: { entreprises: number; active: number } | null = null;
+
 export function getStats(): { entreprises: number; active: number } {
+  if (cachedStats) return cachedStats;
   const d = getDb();
   if (!d) return { entreprises: 0, active: 0 };
   if (!stmtCountActive) {
@@ -190,5 +186,6 @@ export function getStats(): { entreprises: number; active: number } {
     );
   }
   const row = stmtCountActive.get() as { total: number; active: number };
-  return { entreprises: row.total, active: row.active };
+  cachedStats = { entreprises: row.total, active: row.active };
+  return cachedStats;
 }

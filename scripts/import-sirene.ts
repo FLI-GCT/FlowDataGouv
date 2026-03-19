@@ -26,7 +26,7 @@ const getArg = (name: string) => {
 
 const DB_PATH = getArg("--db") || process.env.SIRENE_DB_PATH || path.join(process.cwd(), "data", "sirene.db");
 const CSV_PATH = getArg("--csv") || null;
-const DATASET_ID = "5b3cc551c751df4822526c1c"; // Base Sirene des entreprises
+const DATASET_ID = "5b7ffc618b4c4169d30727e0"; // Base Sirene des entreprises
 const TMP_DB = DB_PATH + ".tmp";
 
 // ── Download CSV if needed ───────────────────────────────────
