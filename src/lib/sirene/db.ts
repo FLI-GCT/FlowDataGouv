@@ -121,7 +121,9 @@ export function searchEntreprises(
   const whereStr = whereClauses.length ? " AND " + whereClauses.join(" AND ") : "";
 
   // FTS5 search (fast: 2-10 ms on warm cache)
-  const words = query.trim().replace(/['"]/g, "").split(/\s+/).filter(Boolean);
+  // Sanitize: strip all FTS5 special chars to prevent injection
+  const sanitized = query.trim().replace(/['"*(){}[\]:^~@!\\]/g, "").replace(/\bAND\b|\bOR\b|\bNOT\b|\bNEAR\b/gi, "");
+  const words = sanitized.split(/\s+/).filter(w => w.length > 0);
   if (words.length > 0) {
     try {
       // FTS5 query: each word quoted, AND logic
@@ -152,7 +154,9 @@ export function searchEntreprises(
     LIMIT ? OFFSET ?
   `;
   // Use prefix match (faster) if single word, otherwise use contains
-  const likePattern = words.length === 1 ? `${words[0]}%` : `%${query.trim()}%`;
+  // Escape LIKE special chars (%, _)
+  const escapedQuery = sanitized.replace(/%/g, "\\%").replace(/_/g, "\\_");
+  const likePattern = words.length === 1 ? `${words[0]}%` : `%${escapedQuery}%`;
   const results = d.prepare(prefixSql).all(likePattern, ...whereParams, Math.min(limit + 1, 21), offset) as EntrepriseRow[];
   const hasMore = results.length > Math.min(limit, 20);
   if (hasMore) results.pop();
