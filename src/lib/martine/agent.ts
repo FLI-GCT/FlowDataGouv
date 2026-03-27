@@ -12,7 +12,7 @@ import { getOrCreateSession, appendMessages, getMessages } from "./sessions";
 import { logToolCall, logConversation, logError } from "./logger";
 import type { MartineMessage, SSEEvent } from "./types";
 
-const MARTINE_MODEL = process.env.MARTINE_MODEL || "mistral-medium-latest";
+const MARTINE_MODEL = process.env.MARTINE_MODEL || "mistral-small-latest";
 const MAX_TOOL_ROUNDS = 5;
 
 let mistralClient: Mistral | null = null;
@@ -64,6 +64,8 @@ export async function* runAgent(
   ];
 
   let toolRound = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
   const newMessages: MartineMessage[] = [];
 
   while (toolRound < MAX_TOOL_ROUNDS) {
@@ -82,6 +84,13 @@ export async function* runAgent(
     const choice = response.choices?.[0];
     if (!choice) break;
 
+    // Track token usage
+    const usage = response.usage;
+    if (usage) {
+      totalInputTokens += usage.promptTokens || 0;
+      totalOutputTokens += usage.completionTokens || 0;
+    }
+
     const msg = choice.message;
     const content = typeof msg?.content === "string" ? msg.content : null;
     const toolCalls = msg?.toolCalls;
@@ -93,7 +102,8 @@ export async function* runAgent(
         const assistantMsg: MartineMessage = { role: "assistant", content };
         newMessages.push(assistantMsg);
         appendMessages(sessionId, newMessages);
-        logConversation(sessionId, userMessage, toolRound, Date.now() - agentStart, MARTINE_MODEL);
+        logConversation(sessionId, userMessage, toolRound, Date.now() - agentStart, MARTINE_MODEL,
+          { input: totalInputTokens, output: totalOutputTokens }, content.length);
         yield { event: "done", data: { content } };
         return;
       }
@@ -180,6 +190,12 @@ export async function* runAgent(
       fullContent += delta.content;
       yield { event: "delta", data: { content: delta.content } };
     }
+    // Track streaming usage (last chunk often has it)
+    const streamUsage = event.data?.usage;
+    if (streamUsage) {
+      totalInputTokens += streamUsage.promptTokens || 0;
+      totalOutputTokens += streamUsage.completionTokens || 0;
+    }
   }
 
   // Record final assistant message
@@ -188,7 +204,8 @@ export async function* runAgent(
   }
 
   appendMessages(sessionId, newMessages);
-  logConversation(sessionId, userMessage, toolRound, Date.now() - agentStart, MARTINE_MODEL);
+  logConversation(sessionId, userMessage, toolRound, Date.now() - agentStart, MARTINE_MODEL,
+    { input: totalInputTokens, output: totalOutputTokens }, fullContent.length);
   yield { event: "done", data: { content: fullContent } };
 }
 

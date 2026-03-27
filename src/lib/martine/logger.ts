@@ -19,6 +19,9 @@ export interface MartineLogEntry {
   tool_rounds?: number;
   total_ms?: number;
   model?: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  response_length?: number;
   // tool_call fields
   tool?: string;
   args?: Record<string, unknown>;
@@ -43,9 +46,12 @@ function writeLog(entry: MartineLogEntry): void {
   // Also log to stderr for PM2 logs
   const ts = new Date().toISOString().replace("T", " ").slice(0, 19);
   switch (entry.type) {
-    case "conversation":
-      console.error(`${ts}: [martine] query="${entry.query}" tools=${entry.tool_rounds} ${entry.total_ms}ms`);
+    case "conversation": {
+      const tkn = entry.input_tokens ? ` tokens=${entry.input_tokens}→${entry.output_tokens}` : "";
+      const resp = entry.response_length ? ` resp=${entry.response_length}ch` : "";
+      console.error(`${ts}: [martine] query="${entry.query}" tools=${entry.tool_rounds} ${entry.total_ms}ms ${entry.model}${tkn}${resp}`);
       break;
+    }
     case "tool_call":
       if (entry.status === "ok") {
         console.error(`${ts}: [martine] ${entry.tool}(${fmtArgs(entry.args)}) → ok (${entry.duration_ms}ms, ${entry.result_size} chars)`);
@@ -102,6 +108,8 @@ export function logConversation(
   toolRounds: number,
   totalMs: number,
   model: string,
+  tokens?: { input: number; output: number },
+  responseLength?: number,
 ): void {
   writeLog({
     ts: new Date().toISOString(),
@@ -111,6 +119,9 @@ export function logConversation(
     tool_rounds: toolRounds,
     total_ms: totalMs,
     model,
+    input_tokens: tokens?.input,
+    output_tokens: tokens?.output,
+    response_length: responseLength,
   });
 }
 
@@ -157,7 +168,7 @@ function sanitize(args: Record<string, unknown>): Record<string, unknown> {
 
 export async function aggregateMartineStats(days = 7): Promise<{
   period: { from: string; to: string };
-  conversations: { total: number; avg_tool_rounds: string; avg_duration_ms: number };
+  conversations: { total: number; avg_tool_rounds: string; avg_duration_ms: number; total_input_tokens: number; total_output_tokens: number; avg_response_length: number };
   tool_calls: { total: number; errors: number; error_rate: string };
   by_tool: { tool: string; calls: number; errors: number; avg_ms: number }[];
   daily: { date: string; conversations: number; tool_calls: number; errors: number }[];
@@ -167,7 +178,7 @@ export async function aggregateMartineStats(days = 7): Promise<{
 }> {
   const empty = {
     period: { from: "", to: "" },
-    conversations: { total: 0, avg_tool_rounds: "0", avg_duration_ms: 0 },
+    conversations: { total: 0, avg_tool_rounds: "0", avg_duration_ms: 0, total_input_tokens: 0, total_output_tokens: 0, avg_response_length: 0 },
     tool_calls: { total: 0, errors: 0, error_rate: "0%" },
     by_tool: [], daily: [], top_queries: [], recent_errors: [],
     sessions: { created: 0, expired: 0 },
@@ -196,6 +207,7 @@ export async function aggregateMartineStats(days = 7): Promise<{
   const recentErrors: { ts: string; tool: string; error: string }[] = [];
   let totalConvos = 0, totalToolCalls = 0, totalToolErrors = 0;
   let totalRounds = 0, totalDuration = 0;
+  let totalInputTokens = 0, totalOutputTokens = 0, totalResponseLength = 0;
   let sessCreated = 0, sessExpired = 0;
 
   const rl = createInterface({
@@ -217,6 +229,9 @@ export async function aggregateMartineStats(days = 7): Promise<{
         totalConvos++;
         totalRounds += entry.tool_rounds || 0;
         totalDuration += entry.total_ms || 0;
+        totalInputTokens += entry.input_tokens || 0;
+        totalOutputTokens += entry.output_tokens || 0;
+        totalResponseLength += entry.response_length || 0;
         d.convos++;
         if (entry.query) queryMap.set(entry.query, (queryMap.get(entry.query) || 0) + 1);
         break;
@@ -250,6 +265,9 @@ export async function aggregateMartineStats(days = 7): Promise<{
       total: totalConvos,
       avg_tool_rounds: totalConvos ? (totalRounds / totalConvos).toFixed(1) : "0",
       avg_duration_ms: totalConvos ? Math.round(totalDuration / totalConvos) : 0,
+      total_input_tokens: totalInputTokens,
+      total_output_tokens: totalOutputTokens,
+      avg_response_length: totalConvos ? Math.round(totalResponseLength / totalConvos) : 0,
     },
     tool_calls: {
       total: totalToolCalls,
