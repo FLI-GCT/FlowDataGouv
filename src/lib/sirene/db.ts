@@ -175,12 +175,17 @@ export function getEntreprise(siren: string): EntrepriseRow | null {
 export function getEtablissements(siren: string): EtablissementRow[] {
   const d = getDb();
   if (!d) return [];
-  if (!stmtGetEtablissements) {
-    stmtGetEtablissements = d.prepare(
-      "SELECT * FROM etablissement WHERE siren = ? ORDER BY est_siege DESC, date_creation DESC",
-    );
+  try {
+    if (!stmtGetEtablissements) {
+      stmtGetEtablissements = d.prepare(
+        "SELECT * FROM etablissement WHERE siren = ? ORDER BY est_siege DESC, date_creation DESC",
+      );
+    }
+    return stmtGetEtablissements.all(siren) as EtablissementRow[];
+  } catch {
+    // Table 'etablissement' may not exist (optional, Phase 2 import)
+    return [];
   }
-  return stmtGetEtablissements.all(siren) as EtablissementRow[];
 }
 
 // Cached stats (computed once, ~4s on first call for 29M rows)
