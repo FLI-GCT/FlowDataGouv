@@ -50,21 +50,32 @@ export const datasetTools: ToolDef[] = [
       "Liste les ressources (fichiers) d'un dataset avec verification de l'API tabulaire.",
       "Retourne : nom, format (CSV, JSON, XLS...), taille, URL.",
       "Indique quelles ressources sont exploitables en ligne (API tabulaire disponible).",
+      "INCLUT le schema (colonnes, types) de chaque ressource tabulaire.",
+      "Vous pouvez ensuite appeler datagouv_resource_data directement avec les filtres.",
     ].join("\n"),
     schema: z.object({
       dataset_id: z.string().describe("ID ou slug du dataset"),
     }),
     handler: async (args) => {
       const resources = await datagouv.listDatasetResources(args.dataset_id as string);
-      // Probe Tabular API for CSV/XLS/JSON resources
+      // Probe Tabular API + fetch schema for CSV/XLS/JSON resources
       const TABULAR_FORMATS = new Set(["csv", "xls", "xlsx", "json", "tsv", "ods"]);
-      type ResourceWithTabular = Record<string, unknown> & { tabularAvailable: boolean };
-      const probed: ResourceWithTabular[] = await Promise.all(
+      type ResourceProbed = Record<string, unknown> & {
+        tabularAvailable: boolean;
+        schema?: Array<{ name: string; type: string }>;
+      };
+      const probed: ResourceProbed[] = await Promise.all(
         resources.map(async (r: Record<string, unknown>) => {
           const fmt = String(r.format || "").toLowerCase();
           if (!TABULAR_FORMATS.has(fmt)) return { ...r, tabularAvailable: false };
-          const available = await datagouv.isTabularAvailable(String(r.id));
-          return { ...r, tabularAvailable: available };
+          // getResourceSchema calls /profile/ — same endpoint as isTabularAvailable
+          // If it succeeds, the resource is tabular AND we get the schema
+          try {
+            const s = await datagouv.getResourceSchema(String(r.id));
+            return { ...r, tabularAvailable: true, schema: s.columns };
+          } catch {
+            return { ...r, tabularAvailable: false };
+          }
         }),
       );
       const explorable = probed.filter((r) => r.tabularAvailable);
@@ -74,9 +85,13 @@ export const datasetTools: ToolDef[] = [
       for (const r of probed) {
         const mark = r.tabularAvailable ? "✅" : "—";
         lines.push(`- ${mark} **${r.title}** (${r.format}, ${r.filesize || "?"}) — \`${r.id}\``);
+        if (r.schema && r.schema.length > 0) {
+          const cols = r.schema.map((c) => `${c.name} (${c.type})`).join(", ");
+          lines.push(`  Colonnes: ${cols}`);
+        }
       }
       if (explorable.length > 0) {
-        lines.push(`\n**Ressources exploitables** : utilisez datagouv_resource_data avec les IDs ci-dessus (le schema est inclus automatiquement).`);
+        lines.push(`\n**Ressources exploitables** : utilisez datagouv_resource_data avec les IDs et colonnes ci-dessus.`);
       }
       return [{ type: "text" as const, text: lines.join("\n") }];
     },
