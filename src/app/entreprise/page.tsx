@@ -39,11 +39,23 @@ export default function EntreprisesPage() {
     try {
       const params = new URLSearchParams({ q: query, limit: "30" });
       if (statut) params.set("statut", statut);
-      const res = await fetch(`/api/sirene/search?${params}`);
+      const res = await fetch(`/api/sirene/search?${params}`, {
+        signal: AbortSignal.timeout(15_000),
+      });
       const data = await res.json();
       if (data.error) {
         setResults([]);
         setTotal(0);
+      } else if (data.total === 0 && statut) {
+        // No results with status filter → retry without filter to find ceased companies
+        const retryParams = new URLSearchParams({ q: query, limit: "30" });
+        const retryRes = await fetch(`/api/sirene/search?${retryParams}`, {
+          signal: AbortSignal.timeout(15_000),
+        });
+        const retryData = await retryRes.json();
+        setResults(retryData.results || []);
+        setTotal(retryData.total || 0);
+        setDurationMs(retryData.durationMs || 0);
       } else {
         setResults(data.results || []);
         setTotal(data.total || 0);
