@@ -20,7 +20,6 @@ import type {
   OpenApiRequestBody,
   OpenApiResponse,
 } from "@/lib/parsers";
-import { PREVIEW_MAX_BYTES } from "@/lib/constants";
 
 // --- Base URLs (from datagouv-mcp env_config.py) ---
 
@@ -361,74 +360,93 @@ export async function downloadAndParseResource(
   resourceId: string,
   maxRows = 20
 ): Promise<ParsedTabularData> {
-  // Get resource URL
-  const infoRes = await fetch(`${DATAGOUV_API}2/datasets/resources/${resourceId}/`, {
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!infoRes.ok) throw new Error(`Ressource introuvable: HTTP ${infoRes.status}`);
-  const infoData = await infoRes.json();
-  const resource = infoData.resource || {};
-  const resourceUrl = resource.url;
-  if (!resourceUrl) throw new Error("Pas d'URL de telechargement.");
+  // Always go through disk cache (no size limit, memory-safe)
+  const { filePath, contentType, resourceTitle, resourceUrl } = await getCachedOrDownload(resourceId);
 
-  // Try reading from download cache first, then fall back to direct download
-  let text = "";
-  let contentType = "";
-  let usedCache = false;
-  try {
-    const { getCachedPath } = await import("@/lib/cache/download-cache");
-    const cached = await getCachedPath(resourceId);
-    if (cached) {
-      const { readFile } = await import("fs/promises");
-      const buf = await readFile(cached.filePath);
-      text = new TextDecoder("utf-8").decode(buf);
-      contentType = cached.entry.contentType;
-      usedCache = true;
-    }
-  } catch {
-    // Cache module unavailable — will download directly
-  }
-
-  if (!usedCache) {
-    const dlRes = await fetch(resourceUrl, { signal: AbortSignal.timeout(300_000) });
-    if (!dlRes.ok) throw new Error(`Erreur telechargement: HTTP ${dlRes.status}`);
-    contentType = dlRes.headers.get("content-type") || "";
-    const buffer = await dlRes.arrayBuffer();
-    text = new TextDecoder("utf-8").decode(buffer);
-  }
-
-  // Detect format and parse
+  // Detect format from filename/content-type
   const filename = resourceUrl.split("/").pop()?.split("?")[0] || "";
   const fmt = filename.toLowerCase();
-  let rows: Record<string, string>[] = [];
+  const isJson = fmt.endsWith(".json") || fmt.endsWith(".jsonl") || contentType.includes("json");
 
-  if (fmt.endsWith(".json") || fmt.endsWith(".jsonl") || contentType.includes("json")) {
-    rows = parseJsonContent(text, maxRows);
+  let rows: Record<string, string>[];
+  let hasMore = false;
+
+  if (isJson) {
+    // JSON/JSONL: read first 2 MB chunk (safe for large files)
+    const { open } = await import("fs/promises");
+    const JSON_READ_LIMIT = 2 * 1024 * 1024;
+    const fd = await open(filePath, "r");
+    try {
+      const fstat = await fd.stat();
+      const buf = Buffer.alloc(Math.min(fstat.size, JSON_READ_LIMIT));
+      await fd.read(buf, 0, buf.length, 0);
+      const text = buf.toString("utf-8");
+      rows = parseJsonContent(text, maxRows);
+      hasMore = fstat.size > JSON_READ_LIMIT || rows.length >= maxRows;
+    } finally {
+      await fd.close();
+    }
   } else {
-    // Default to CSV
-    rows = parseCsvContent(text, maxRows);
+    // CSV/TSV: stream only maxRows+1 lines (memory-safe for any file size)
+    const result = await streamCsvLines(filePath, maxRows);
+    rows = result.rows;
+    hasMore = result.hasMore;
   }
 
   const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
 
   return {
     type: "tabular_data",
-    resourceTitle: resource.title || "",
+    resourceTitle,
     resourceId,
     question: "",
     totalRows: rows.length,
     columns,
     rows,
-    hasMore: false,
+    hasMore,
   };
 }
 
-function parseCsvContent(text: string, maxRows: number): Record<string, string>[] {
-  const lines = text.split("\n").filter((l) => l.trim());
-  if (lines.length === 0) return [];
+/** Stream CSV file reading only the first maxRows lines — memory-safe for any file size */
+async function streamCsvLines(
+  filePath: string,
+  maxRows: number,
+): Promise<{ rows: Record<string, string>[]; hasMore: boolean }> {
+  const { createReadStream } = await import("fs");
+  const { createInterface } = await import("readline");
 
-  // Detect delimiter
-  const sample = lines.slice(0, 5).join("\n");
+  const stream = createReadStream(filePath, { encoding: "utf-8", highWaterMark: 64 * 1024 });
+  const rl = createInterface({ input: stream, crlfDelay: Infinity });
+
+  const lines: string[] = [];
+  for await (const line of rl) {
+    if (line.trim()) {
+      lines.push(line);
+      if (lines.length > maxRows + 1) break; // +1 for header, +1 to detect hasMore
+    }
+  }
+  stream.destroy(); // Stop reading the rest of the file
+
+  if (lines.length === 0) return { rows: [], hasMore: false };
+
+  const delimiter = detectDelimiter(lines.slice(0, 5).join("\n"));
+  const headers = lines[0].split(delimiter).map((h) => h.trim().replace(/^"|"$/g, ""));
+  const rows: Record<string, string>[] = [];
+
+  for (let i = 1; i < Math.min(lines.length, maxRows + 1); i++) {
+    const values = lines[i].split(delimiter).map((v) => v.trim().replace(/^"|"$/g, ""));
+    const row: Record<string, string> = {};
+    for (let j = 0; j < headers.length; j++) {
+      row[headers[j]] = values[j] || "";
+    }
+    rows.push(row);
+  }
+
+  return { rows, hasMore: lines.length > maxRows + 1 };
+}
+
+/** Detect CSV delimiter from sample text */
+function detectDelimiter(sample: string): string {
   const delimiters = [",", ";", "\t", "|"];
   let delimiter = ",";
   let maxCount = 0;
@@ -439,7 +457,15 @@ function parseCsvContent(text: string, maxRows: number): Record<string, string>[
       delimiter = d;
     }
   }
+  return delimiter;
+}
 
+/** Parse CSV from full text (kept for backward compat with in-memory callers) */
+function parseCsvContent(text: string, maxRows: number): Record<string, string>[] {
+  const lines = text.split("\n").filter((l) => l.trim());
+  if (lines.length === 0) return [];
+
+  const delimiter = detectDelimiter(lines.slice(0, 5).join("\n"));
   const headers = lines[0].split(delimiter).map((h) => h.trim().replace(/^"|"$/g, ""));
   const rows: Record<string, string>[] = [];
 
@@ -838,7 +864,7 @@ export async function getLatestDataservices(pageSize = 6): Promise<ParsedDataser
 
 // --- Shared: get cached file path (disk cache) or download ---
 
-async function getCachedOrDownload(resourceId: string, maxBytes: number): Promise<{
+async function getCachedOrDownload(resourceId: string, maxBytes?: number): Promise<{
   filePath: string;
   contentType: string;
   resourceTitle: string;
@@ -854,13 +880,15 @@ async function getCachedOrDownload(resourceId: string, maxBytes: number): Promis
   const resourceUrl = resource.url;
   if (!resourceUrl) throw new Error("Pas d'URL de telechargement.");
 
+  const { DOWNLOAD_MAX_BYTES } = await import("@/lib/constants");
+  const limit = maxBytes ?? DOWNLOAD_MAX_BYTES; // default 500 MB
+
   // 2. Try disk cache first
   const { getCachedPath, cacheResource } = await import("@/lib/cache/download-cache");
   const cached = await getCachedPath(resourceId);
   if (cached) {
-    // Check size limit
-    if (cached.entry.size > maxBytes) {
-      throw new Error(`Fichier trop volumineux (${(cached.entry.size / 1024 / 1024).toFixed(1)} MB, max ${(maxBytes / 1024 / 1024).toFixed(0)} MB)`);
+    if (cached.entry.size > limit) {
+      throw new Error(`Fichier trop volumineux (${(cached.entry.size / 1024 / 1024).toFixed(0)} MB, max ${(limit / 1024 / 1024).toFixed(0)} MB)`);
     }
     return {
       filePath: cached.filePath,
@@ -873,14 +901,14 @@ async function getCachedOrDownload(resourceId: string, maxBytes: number): Promis
   // 3. Check size with HEAD before downloading
   const headRes = await fetch(resourceUrl, { method: "HEAD", signal: AbortSignal.timeout(10_000) }).catch(() => null);
   const contentLength = headRes?.headers.get("content-length");
-  if (contentLength && parseInt(contentLength) > maxBytes) {
-    throw new Error(`Fichier trop volumineux (${(parseInt(contentLength) / 1024 / 1024).toFixed(1)} MB, max ${(maxBytes / 1024 / 1024).toFixed(0)} MB)`);
+  if (contentLength && parseInt(contentLength) > limit) {
+    throw new Error(`Fichier trop volumineux (${(parseInt(contentLength) / 1024 / 1024).toFixed(0)} MB, max ${(limit / 1024 / 1024).toFixed(0)} MB)`);
   }
 
   // 4. Download to disk cache
   const result = await cacheResource(resourceId, resourceUrl);
-  if (result.entry.size > maxBytes) {
-    throw new Error(`Fichier trop volumineux (${(result.entry.size / 1024 / 1024).toFixed(1)} MB, max ${(maxBytes / 1024 / 1024).toFixed(0)} MB)`);
+  if (result.entry.size > limit) {
+    throw new Error(`Fichier trop volumineux (${(result.entry.size / 1024 / 1024).toFixed(0)} MB, max ${(limit / 1024 / 1024).toFixed(0)} MB)`);
   }
 
   return {
@@ -895,9 +923,8 @@ async function getCachedOrDownload(resourceId: string, maxBytes: number): Promis
 
 export async function downloadResourceRaw(
   resourceId: string,
-  maxBytes = PREVIEW_MAX_BYTES,
 ): Promise<{ content: string; contentType: string; resourceTitle: string }> {
-  const { filePath, contentType, resourceTitle } = await getCachedOrDownload(resourceId, maxBytes);
+  const { filePath, contentType, resourceTitle } = await getCachedOrDownload(resourceId);
   const { readFile } = await import("fs/promises");
   const buf = await readFile(filePath);
   const content = new TextDecoder("utf-8").decode(buf);
@@ -923,9 +950,8 @@ const JSON_RESPONSE_MAX = 80 * 1024; // 80 KB
 export async function downloadResourceJson(
   resourceId: string,
   maxItems = 100,
-  maxBytes = PREVIEW_MAX_BYTES,
 ): Promise<ParsedJsonPreview> {
-  const { filePath, resourceTitle, resourceUrl } = await getCachedOrDownload(resourceId, maxBytes);
+  const { filePath, resourceTitle, resourceUrl } = await getCachedOrDownload(resourceId);
   const { stat, open } = await import("fs/promises");
 
   const fileInfo = await stat(filePath);
@@ -1352,9 +1378,8 @@ export interface ZipListing {
 
 export async function listZipContents(
   resourceId: string,
-  maxBytes = PREVIEW_MAX_BYTES,
 ): Promise<ZipListing> {
-  const { filePath, resourceTitle } = await getCachedOrDownload(resourceId, maxBytes);
+  const { filePath, resourceTitle } = await getCachedOrDownload(resourceId);
   const { readFile } = await import("fs/promises");
   const buffer = await readFile(filePath);
 

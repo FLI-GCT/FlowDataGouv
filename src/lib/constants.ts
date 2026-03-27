@@ -17,6 +17,13 @@ export const PREVIEW_MAX_MB = parseInt(
 /** Max file size in bytes for resource preview (JSON, XML, ZIP, images, PDF). */
 export const PREVIEW_MAX_BYTES = PREVIEW_MAX_MB * 1024 * 1024;
 
+/** Max download size for MCP tools (500 MB default, env DOWNLOAD_MAX_MB). */
+export const DOWNLOAD_MAX_MB = parseInt(
+  process.env.DOWNLOAD_MAX_MB || "500",
+  10
+);
+export const DOWNLOAD_MAX_BYTES = DOWNLOAD_MAX_MB * 1024 * 1024;
+
 export const SITE_NAME = "FlowDataGouv";
 export const SITE_DESCRIPTION =
   "Explorez les donnees ouvertes francaises avec l'IA";

@@ -86,10 +86,11 @@ export const datasetTools: ToolDef[] = [
     name: "datagouv_resource_data",
     description: [
       "Interroge les donnees tabulaires d'une ressource CSV/XLS via l'API Tabular.",
-      "Retourne TOUJOURS le schema des colonnes avec les donnees.",
-      "Supporte filtres multiples (combinaison AND) et tri.",
-      "Operateurs : exact, contains, less, greater.",
-      "Si la Tabular API n'est pas disponible, tente un telechargement direct (< 50 Mo).",
+      "IMPORTANT: le schema des colonnes est TOUJOURS retourne avec les donnees.",
+      "Les noms de colonnes sont corriges automatiquement (fuzzy match).",
+      "Operateurs de filtre: exact (defaut), contains (texte), less, greater (numerique).",
+      "Si vous ne connaissez pas les colonnes, appelez sans filtre pour voir le schema.",
+      "Fallback automatique par telechargement si l'API Tabular n'est pas disponible.",
     ].join("\n"),
     schema: z.object({
       resource_id: z.string().describe("ID de la ressource"),
@@ -129,25 +130,91 @@ export const datasetTools: ToolDef[] = [
         ? { column: args.sort_column as string, direction: (args.sort_direction || "asc") as string }
         : undefined;
 
-      // Always fetch schema in parallel
+      // Always fetch schema first
       let schema: string[] = [];
+      let schemaColumns: Array<{ name: string; type: string }> = [];
       try {
         const s = await datagouv.getResourceSchema(rid);
+        schemaColumns = s.columns;
         schema = s.columns.map((c) => `${c.name} (${c.type})`);
       } catch { /* schema unavailable */ }
 
+      // Fuzzy-match filter column names against real schema
+      const warnings: string[] = [];
+      if (schemaColumns.length > 0 && filterList.length > 0) {
+        const colIndex = new Map<string, string>();
+        for (const col of schemaColumns) {
+          colIndex.set(normalizeColName(col.name), col.name);
+        }
+        for (const f of filterList) {
+          const normalized = normalizeColName(f.column);
+          const realName = colIndex.get(normalized);
+          if (realName) {
+            if (realName !== f.column) {
+              warnings.push(`Colonne "${f.column}" corrigee en "${realName}"`);
+            }
+            f.column = realName;
+          } else {
+            // Try partial match (column name contained in real name or vice versa)
+            let found = false;
+            for (const [normKey, realKey] of colIndex) {
+              if (normKey.includes(normalized) || normalized.includes(normKey)) {
+                warnings.push(`Colonne "${f.column}" corrigee en "${realKey}" (match partiel)`);
+                f.column = realKey;
+                found = true;
+                break;
+              }
+            }
+            if (!found) {
+              warnings.push(`Colonne "${f.column}" introuvable — filtre ignore`);
+              f.column = ""; // will be skipped by queryResourceData
+            }
+          }
+        }
+      }
+      // Remove invalid filters (empty column name)
+      const validFilters = filterList.filter((f) => f.column);
+
+      // Also fuzzy-match sort column
+      if (sort && schemaColumns.length > 0) {
+        const colIndex = new Map<string, string>();
+        for (const col of schemaColumns) colIndex.set(normalizeColName(col.name), col.name);
+        const normalized = normalizeColName(sort.column);
+        const realName = colIndex.get(normalized);
+        if (realName) {
+          sort.column = realName;
+        } else {
+          warnings.push(`Colonne de tri "${sort.column}" introuvable — tri ignore`);
+          sort.column = "";
+        }
+      }
+      const validSort = sort && sort.column ? sort : undefined;
+
       // Try Tabular API first
       try {
-        const data = await datagouv.queryResourceData(rid, page, pageSize, filterList.length ? filterList : undefined, sort);
+        const data = await datagouv.queryResourceData(rid, page, pageSize, validFilters.length ? validFilters : undefined, validSort);
         const lines = [
           schema.length ? `**Schema**: ${schema.join(", ")}` : "",
+          warnings.length ? `**Corrections**: ${warnings.join("; ")}` : "",
           `**Donnees**: ${data.totalRows} lignes, page ${data.page || page}`,
           "",
           formatResult("Resultats", data),
         ].filter(Boolean);
         return [{ type: "text" as const, text: lines.join("\n") }];
-      } catch {
-        // Fallback: download + parse
+      } catch (tabularErr) {
+        const errMsg = tabularErr instanceof Error ? tabularErr.message : "";
+        // On 400 (invalid filter), return schema + available columns instead of fallback
+        if (errMsg.includes("400")) {
+          const colNames = schemaColumns.map((c) => c.name);
+          const lines = [
+            schema.length ? `**Schema**: ${schema.join(", ")}` : "",
+            `⚠️ Filtre invalide: ${errMsg}`,
+            colNames.length ? `**Colonnes disponibles**: ${colNames.join(", ")}` : "",
+            warnings.length ? `**Corrections tentees**: ${warnings.join("; ")}` : "",
+          ].filter(Boolean);
+          return [{ type: "text" as const, text: lines.join("\n") }];
+        }
+        // For other errors (404, 500, timeout), try download fallback
         try {
           const result = await flowdata.proxyDatagouvCall("download_and_parse_resource", {
             resource_id: rid,
@@ -173,9 +240,11 @@ export const datasetTools: ToolDef[] = [
   {
     name: "datagouv_download_resource",
     description: [
-      "Telecharge et parse une ressource (CSV, JSON, JSONL).",
+      "Telecharge et parse une ressource fichier (CSV, JSON, JSONL, XLS).",
+      "Fichiers jusqu'a 500 Mo supportes — caches sur disque automatiquement.",
       "Detection automatique du format et du delimiteur CSV.",
       "Retourne les premieres lignes du fichier parse.",
+      "Utilisez cet outil quand l'API Tabular n'est pas disponible pour la ressource.",
     ].join("\n"),
     schema: z.object({
       resource_id: z.string().describe("ID de la ressource"),
@@ -228,8 +297,9 @@ export const datasetTools: ToolDef[] = [
     name: "datagouv_resource_schema",
     description: [
       "Recupere le schema (colonnes, types) d'une ressource tabulaire.",
+      "APPELEZ CECI EN PREMIER si vous devez filtrer des donnees avec resource_data:",
+      "les noms de colonnes exacts sont necessaires pour les filtres.",
       "Note: datagouv_resource_data retourne aussi le schema automatiquement.",
-      "Utilisez cet outil si vous avez besoin du schema seul (sans donnees).",
       "Retourne : nom de colonne, type (string/int/float/date...), format detecte.",
     ].join("\n"),
     schema: z.object({
@@ -246,6 +316,14 @@ export const datasetTools: ToolDef[] = [
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────
+
+/** Normalize column name for fuzzy matching: lowercase, strip accents, strip separators */
+function normalizeColName(name: string): string {
+  return name
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // strip accents
+    .toLowerCase()
+    .replace(/[-_.\s]/g, ""); // strip separators
+}
 
 function formatResult(label: string, data: unknown, source?: "proxy" | "direct"): string {
   const tag = source === "direct" ? " (via data.gouv.fr direct)" : "";
