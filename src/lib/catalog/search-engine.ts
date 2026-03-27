@@ -639,6 +639,28 @@ class CatalogSearchEngine {
       licenses: toFacetValues(licCounts, LICENSE_LABELS),
     };
   }
+
+  /** Resolve dataset ID to basic info (title, org, category) */
+  async getById(id: string): Promise<{ title: string; organization: string; category: string } | null> {
+    await this.ensureFresh();
+    const item = this.items.find((i) => i.id === id);
+    if (!item) return null;
+    return { title: item.title, organization: item.org, category: item.category };
+  }
+
+  /** Resolve multiple dataset IDs to basic info */
+  async resolveIds(ids: string[]): Promise<Map<string, { title: string; organization: string; category: string }>> {
+    await this.ensureFresh();
+    const idSet = new Set(ids);
+    const result = new Map<string, { title: string; organization: string; category: string }>();
+    for (const item of this.items) {
+      if (idSet.has(item.id)) {
+        result.set(item.id, { title: item.title, organization: item.org, category: item.category });
+        if (result.size === idSet.size) break;
+      }
+    }
+    return result;
+  }
 }
 
 /** Singleton instance */

@@ -3,6 +3,7 @@ import { HeroSearch } from "@/components/layout/HeroSearch";
 import { QueryExamples } from "@/components/landing/QueryExamples";
 import { CatalogSummary, type CatalogSummaryData } from "@/components/landing/CatalogSummary";
 import { LatestContent, type LatestContentData } from "@/components/landing/LatestContent";
+import { TrendingDatasets } from "@/components/landing/TrendingDatasets";
 import * as fs from "fs/promises";
 import * as path from "path";
 import type { Catalog } from "@/lib/sync/catalog";
@@ -108,6 +109,11 @@ export default async function Home() {
       {/* Catalog summary — stats, categories, top datasets, geo */}
       <section className="border-t bg-muted/20 py-12">
         <CatalogSummary initialData={catalogData} />
+      </section>
+
+      {/* Trending datasets */}
+      <section className="border-t bg-muted/10 py-4">
+        <TrendingDatasets />
       </section>
 
       {/* Latest content */}
