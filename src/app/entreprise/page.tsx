@@ -30,7 +30,6 @@ export default function EntreprisesPage() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [durationMs, setDurationMs] = useState(0);
-  const [statut, setStatut] = useState("A");
 
   const search = useCallback(async () => {
     if (!query.trim()) return;
@@ -38,7 +37,6 @@ export default function EntreprisesPage() {
     setSearched(true);
     try {
       const params = new URLSearchParams({ q: query, limit: "30" });
-      if (statut) params.set("statut", statut);
       const res = await fetch(`/api/sirene/search?${params}`, {
         signal: AbortSignal.timeout(15_000),
       });
@@ -46,16 +44,6 @@ export default function EntreprisesPage() {
       if (data.error) {
         setResults([]);
         setTotal(0);
-      } else if (data.total === 0 && statut) {
-        // No results with status filter → retry without filter to find ceased companies
-        const retryParams = new URLSearchParams({ q: query, limit: "30" });
-        const retryRes = await fetch(`/api/sirene/search?${retryParams}`, {
-          signal: AbortSignal.timeout(15_000),
-        });
-        const retryData = await retryRes.json();
-        setResults(retryData.results || []);
-        setTotal(retryData.total || 0);
-        setDurationMs(retryData.durationMs || 0);
       } else {
         setResults(data.results || []);
         setTotal(data.total || 0);
@@ -67,7 +55,7 @@ export default function EntreprisesPage() {
     } finally {
       setLoading(false);
     }
-  }, [query, statut]);
+  }, [query]);
 
   return (
     <main className="flex-1">
@@ -95,15 +83,6 @@ export default function EntreprisesPage() {
               className="w-full rounded-lg border bg-background px-4 py-2.5 pl-10 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </div>
-          <select
-            value={statut}
-            onChange={(e) => setStatut(e.target.value)}
-            className="rounded-lg border bg-background px-3 py-2.5 text-sm"
-          >
-            <option value="A">Actives</option>
-            <option value="C">Cessees</option>
-            <option value="">Toutes</option>
-          </select>
           <Button onClick={search} disabled={loading || !query.trim()}>
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Rechercher"}
           </Button>
