@@ -59,3 +59,4 @@ meilisearch.exe
 
 # claude code (local config, not for sharing)
 .claude/
+docs/mcp-synthese-technique.md
