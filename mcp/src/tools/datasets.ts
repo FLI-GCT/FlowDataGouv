@@ -340,11 +340,32 @@ function normalizeColName(name: string): string {
     .replace(/[-_.\s]/g, ""); // strip separators
 }
 
+/** Truncate long cell values to save LLM tokens (from official datagouv-mcp) */
+function truncateValues(data: unknown): unknown {
+  if (Array.isArray(data)) return data.map(truncateValues);
+  if (data && typeof data === "object") {
+    const obj = data as Record<string, unknown>;
+    const result: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (typeof v === "string" && v.length > 100) {
+        result[k] = v.slice(0, 100) + "...";
+      } else if (Array.isArray(v) || (v && typeof v === "object")) {
+        result[k] = truncateValues(v);
+      } else {
+        result[k] = v;
+      }
+    }
+    return result;
+  }
+  return data;
+}
+
 function formatResult(label: string, data: unknown, source?: "proxy" | "direct"): string {
   const tag = source === "direct" ? " (via data.gouv.fr direct)" : "";
   if (!data) return `${label}: aucun resultat${tag}`;
   try {
-    const json = JSON.stringify(data, null, 2);
+    const truncated = truncateValues(data);
+    const json = JSON.stringify(truncated, null, 2);
     if (json.length > 8000) {
       return `## ${label}${tag}\n\`\`\`json\n${json.slice(0, 8000)}\n...(tronque)\n\`\`\``;
     }

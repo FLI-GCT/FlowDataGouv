@@ -103,7 +103,7 @@ export async function searchDatasets(
     page_size: String(Math.min(pageSize, 100)),
   });
 
-  let res = await fetch(`${DATAGOUV_API}1/datasets/?${params}`, {
+  let res = await fetch(`${DATAGOUV_API}2/datasets/search/?${params}`, {
     signal: AbortSignal.timeout(15_000),
   });
 
@@ -118,7 +118,7 @@ export async function searchDatasets(
         page: String(page),
         page_size: String(Math.min(pageSize, 100)),
       });
-      const fallbackRes = await fetch(`${DATAGOUV_API}1/datasets/?${fallbackParams}`, {
+      const fallbackRes = await fetch(`${DATAGOUV_API}2/datasets/search/?${fallbackParams}`, {
         signal: AbortSignal.timeout(15_000),
       });
       if (fallbackRes.ok) {
@@ -538,7 +538,7 @@ export async function searchDataservices(
     page_size: String(Math.min(pageSize, 100)),
   });
 
-  const res = await fetch(`${DATAGOUV_API}1/dataservices/?${params}`, {
+  const res = await fetch(`${DATAGOUV_API}2/dataservices/search/?${params}`, {
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) throw new Error(`Erreur API: HTTP ${res.status}`);
@@ -835,7 +835,7 @@ export async function getLatestDatasets(pageSize = 6): Promise<ParsedDatasetList
     page_size: String(Math.min(pageSize, 20)),
     page: "1",
   });
-  const res = await fetch(`${DATAGOUV_API}1/datasets/?${params}`, {
+  const res = await fetch(`${DATAGOUV_API}2/datasets/search/?${params}`, {
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) throw new Error(`Erreur API: HTTP ${res.status}`);
@@ -849,7 +849,7 @@ export async function getLatestDataservices(pageSize = 6): Promise<ParsedDataser
     page_size: String(Math.min(pageSize, 20)),
     page: "1",
   });
-  const res = await fetch(`${DATAGOUV_API}1/dataservices/?${params}`, {
+  const res = await fetch(`${DATAGOUV_API}2/dataservices/search/?${params}`, {
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) throw new Error(`Erreur API: HTTP ${res.status}`);

@@ -6,6 +6,8 @@
 import { config } from "./config.js";
 
 const API = () => config.datagouvApiUrl;
+/** Base URL without version for V2 endpoints */
+const API_BASE = () => config.datagouvApiUrl.replace(/\/1\/?$/, "");
 const TABULAR = () => config.tabularApiUrl;
 const TIMEOUT = 15_000;
 
@@ -17,9 +19,29 @@ async function get<T>(url: string, timeout = TIMEOUT): Promise<T> {
 
 // ── Datasets ─────────────────────────────────────────────────────
 
+// Stop words that cause false negatives with AND-based search (from official datagouv-mcp)
+const SEARCH_STOP_WORDS = new Set([
+  "données", "donnee", "donnees", "csv", "excel", "xlsx", "json", "xml",
+  "fichier", "fichiers", "tableau", "tableaux",
+]);
+
+function cleanSearchQuery(query: string): string {
+  const words = query.split(/\s+/).filter((w) => !SEARCH_STOP_WORDS.has(w.toLowerCase()));
+  return words.join(" ");
+}
+
 export async function searchDatasets(query: string, page = 1, pageSize = 20) {
-  const url = `${API()}/datasets/?q=${encodeURIComponent(query)}&page=${page}&page_size=${pageSize}`;
+  // Use V2 search API (better ranking, more results, facets)
+  const cleaned = cleanSearchQuery(query);
+  const q = cleaned || query; // fallback to original if all words are stop words
+  const url = `${API_BASE()}/2/datasets/search/?q=${encodeURIComponent(q)}&page=${page}&page_size=${pageSize}`;
   const data = await get<{ total: number; data: unknown[] }>(url);
+  // If cleaned query returned 0 results, retry with original
+  if (data.total === 0 && cleaned && cleaned !== query) {
+    const retryUrl = `${API_BASE()}/2/datasets/search/?q=${encodeURIComponent(query)}&page=${page}&page_size=${pageSize}`;
+    const retry = await get<{ total: number; data: unknown[] }>(retryUrl);
+    return { total: retry.total, datasets: retry.data.map(mapDataset) };
+  }
   return { total: data.total, datasets: data.data.map(mapDataset) };
 }
 
@@ -33,7 +55,8 @@ export async function listDatasetResources(id: string) {
 }
 
 export async function getResourceInfo(resourceId: string) {
-  return get<Record<string, unknown>>(`${API()}/datasets/resources/${resourceId}/`);
+  // V2 endpoint for resource info
+  return get<Record<string, unknown>>(`${API_BASE()}/2/datasets/resources/${resourceId}/`);
 }
 
 // ── Tabular data ─────────────────────────────────────────────────
@@ -89,7 +112,10 @@ export async function getResourceSchema(resourceId: string) {
 // ── APIs / Dataservices ──────────────────────────────────────────
 
 export async function searchDataservices(query: string, page = 1, pageSize = 20) {
-  const url = `${API()}/dataservices/?q=${encodeURIComponent(query)}&page=${page}&page_size=${pageSize}`;
+  // Use V2 search API
+  const cleaned = cleanSearchQuery(query);
+  const q = cleaned || query;
+  const url = `${API_BASE()}/2/dataservices/search/?q=${encodeURIComponent(q)}&page=${page}&page_size=${pageSize}`;
   const data = await get<{ total: number; data: unknown[] }>(url);
   return { total: data.total, dataservices: data.data };
 }
