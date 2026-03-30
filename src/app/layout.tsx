@@ -45,8 +45,12 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-dvh flex flex-col`}
       >
-        <div className="bg-muted/60 border-b border-border/50 text-center text-xs text-muted-foreground py-1.5 px-4">
-          Site gratuit et anonyme &middot; Projet Open Source de R&amp;D &middot; Non affili&eacute; &agrave; une entreprise ou institution
+        <div className="bg-red-50 border-b border-red-200 text-center text-xs text-red-700 py-1.5 px-4">
+          ❤️ Merci pour votre int&eacute;r&ecirc;t ! Ce projet de R&amp;D sur l&apos;open data fran&ccedil;ais s&apos;ach&egrave;ve fin mars 2026. Explorez le{" "}
+          <a href="https://github.com/FLI-GCT/FlowDataGouv" className="underline font-medium" target="_blank" rel="noopener noreferrer">code source</a>
+          {" "}ou utilisez le{" "}
+          <a href="https://github.com/datagouv/mcp-data.gouv.fr" className="underline font-medium" target="_blank" rel="noopener noreferrer">MCP officiel de data.gouv.fr</a>
+          {" "}pour continuer l&apos;aventure.
         </div>
         <AppHeader />
         <div className="flex-1 flex flex-col">{children}</div>
